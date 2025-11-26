@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Ambiente
+.env
+.env.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arquivos de saída
+*_extraido.json
+*.log
+
+# Arquivos de teste
+exemplo_contrato.pdf
+test_*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+

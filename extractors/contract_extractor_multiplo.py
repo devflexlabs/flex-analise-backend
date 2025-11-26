@@ -1,0 +1,381 @@
+"""
+Extrator de contratos com suporte a múltiplas IAs (OpenAI, Ollama, Groq, Gemini).
+"""
+import os
+from typing import Optional
+from dotenv import load_dotenv
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
+from backend.processors.document_processor import DocumentProcessor
+from backend.models.models import ContratoInfo
+
+from pathlib import Path
+import os
+
+# Carrega .env da pasta backend/config ou raiz
+env_path = Path(__file__).parent.parent / "config" / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(dotenv_path=env_path, override=True)
+
+
+class ContractExtractorMultiplo:
+    """Extrai informações de contratos usando diferentes IAs (OpenAI, Ollama, Groq, Gemini)."""
+    
+    def __init__(self, provider: str = "auto", model_name: Optional[str] = None):
+        """
+        Inicializa o extrator.
+        
+        Args:
+            provider: "openai", "ollama", "groq", "gemini", ou "auto" (detecta automaticamente)
+            model_name: Nome do modelo (opcional, usa padrão por provider)
+        """
+        self.provider = provider.lower()
+        self.document_processor = DocumentProcessor()
+        self.output_parser = PydanticOutputParser(pydantic_object=ContratoInfo)
+        
+        # Se auto, detecta qual está disponível
+        if self.provider == "auto":
+            self.provider = self._detectar_provider()
+        
+        # Inicializa o LLM baseado no provider
+        self.llm = self._inicializar_llm(model_name)
+        
+        # Template do prompt
+        self.prompt_template = ChatPromptTemplate.from_messages([
+            ("system", """Você é um especialista em análise de contratos financeiros brasileiros. 
+Sua tarefa é extrair informações estruturadas de contratos financeiros, independente do formato ou ordem das informações.
+
+IMPORTANTE: 
+- Os contratos podem ter formatos COMPLETAMENTE DIFERENTES (cada banco/financeira tem seu próprio layout)
+- Pode ser contrato ORIGINAL ou ADITIVO DE RENEGOCIAÇÃO
+- As informações podem estar em qualquer ordem e com nomenclaturas diferentes
+- Procure por sinônimos e variações (ex: "emitente", "devedor", "cliente", "contratante")
+- Valores podem estar escritos de várias formas (R$ 50.000,00, R$ 50000.00, 50000 reais, etc.)
+
+CAMpos E VARIAÇÕES COMUNS:
+- Nome do cliente: "Nome/Razão Social", "Cliente", "Emitente", "Devedor", "Contratante", "Solicitante"
+- Valor da dívida: "Valor Total Financiado", "Valor Total do Crédito", "Valor Total Confessado", "Saldo Devedor Remanescente", "Valor Total a Pagar", "Valor do Financiamento"
+- Parcelas: "Quantidade de parcelas", "Número de parcelas", pode estar como "(II) Quantidade de parcelas", "053 parcelas", etc.
+- Valor parcela: "Valor das parcelas", "(I) Valor das parcelas", "Valor de cada parcela mensal", "Parcela de"
+- Datas: "Vencimento da 1ª parcela", "Data do 1° Vencimento", "Primeira parcela", formato pode ser DD/MM/YYYY ou DD-MM-YYYY
+- Taxa juros: "Taxa de juros da operação", "Taxa de juros", "Juros Remuneratórios" - NÃO confundir com CET (Custo Efetivo Total). Priorize sempre a "Taxa de juros da operação". Pode estar como "% a.m." (ao mês) ou "% a.a." (ao ano)
+- Número contrato: "Nº", "Número", "Proposta", "Contrato nº", "Cédula de Crédito Bancário Nº", "Aditivo de Renegociação nº"
+
+Extraia as seguintes informações quando disponíveis:
+1. Nome completo do cliente/devedor/emitente (procure em várias seções, incluindo assinatura)
+2. Valor total da dívida/financiamento (priorize "Valor Total Financiado" ou "Saldo Devedor Remanescente" em renegociações)
+3. Quantidade de parcelas (pode estar escrito como "053" ou "53")
+4. Valor de cada parcela mensal
+5. Data de vencimento da primeira parcela (formato YYYY-MM-DD)
+6. Data de vencimento da última parcela (se disponível)
+7. Taxa de juros mensal da OPERAÇÃO (priorize % ao mês) - NÃO confundir com CET. Use a "Taxa de juros da operação", não o "CET" (Custo Efetivo Total)
+8. Número do contrato/proposta/aditivo
+9. CPF ou CNPJ do cliente (não da empresa/banco - procure na seção do cliente)
+10. Tipo de contrato (financiamento, empréstimo, aditivo de renegociação, etc.)
+11. Observações relevantes: escreva um texto completo e bem formatado. OBRIGATORIAMENTE inclua DOIS PARÁGRAFOS:
+
+    PARÁGRAFO 1 - Informações do contrato:
+    - Informações sobre o bem financiado: marca, modelo, ano, valor à vista (se aplicável)
+    - Valor total financiado/confessado
+    - Quantidade de parcelas e valor de cada parcela
+    - Taxa de juros mensal e anual
+    - CET (Custo Efetivo Total) se disponível
+    - Outras informações: seguros, garantias, condições contratuais importantes
+
+    PARÁGRAFO 2 - ANÁLISE OBRIGATÓRIA DE IRREGULARIDADES E CLÁUSULAS ABUSIVAS (ESTE PARÁGRAFO É OBRIGATÓRIO):
+    Você DEVE SEMPRE incluir este segundo parágrafo analisando explicitamente:
+    
+    * Taxas de juros: 
+      - Taxas acima de 3% a.m. = ALTA (mencione explicitamente)
+      - Taxas acima de 5% a.m. = MUITO ALTA e possivelmente ABUSIVA (mencione explicitamente)
+      - Compare com padrão de mercado (2-4% a.m. é comum)
+    
+    * CET (Custo Efetivo Total):
+      - Se o CET estiver muito acima da taxa de juros (diferença > 2%), identifique como encargos excessivos
+      - CET acima de 60% a.a. = ALTO (mencione explicitamente)
+      - CET acima de 80% a.a. = MUITO ALTO e possivelmente abusivo
+    
+    * Cláusulas abusivas segundo CDC (Código de Defesa do Consumidor):
+      - Multas acima de 2% = ABUSIVA (identifique explicitamente)
+      - Juros moratórios acima de 1% ao mês = possivelmente ABUSIVO (identifique explicitamente)
+      - Cláusulas que limitam direitos do consumidor
+      - Condições não transparentes
+      - Encargos desproporcionais
+    
+    * Irregularidades com normas do BACEN/CMN:
+      - Falta de transparência no CET ou nas condições
+      - Encargos não mencionados claramente
+      - Taxas ou tarifas desproporcionais
+    
+    * Outras irregularidades: identifique qualquer condição abusiva ou irregular
+    
+    IMPORTANTE: Sempre termine este segundo parágrafo com uma frase clara como:
+    - "IRREGULARIDADES IDENTIFICADAS: [liste cada uma explicitamente]" OU
+    - "NÃO FORAM IDENTIFICADAS IRREGULARIDADES EVIDENTES, porém [mencione taxas altas ou condições questionáveis se houver]"
+    
+    FORMATO: Use quebras de linha duplas (\n\n) para separar os dois parágrafos principais.
+
+INSTRUÇÕES ESPECÍFICAS:
+- IMPORTANTE: O contrato pode ser de QUALQUER TIPO: financiamento de veículos, empréstimo, aditivo de renegociação, serviço de negociação de dívida, etc. Adapte a extração ao tipo de contrato.
+- Seja MUITO cuidadoso e procure em TODAS as seções do documento
+- Para valores monetários, converta para número decimal (ex: R$ 50.000,00 -> 50000.00)
+- Para datas, use formato YYYY-MM-DD (ex: 28/02/2025 -> 2025-02-28)
+- Em aditivos de renegociação, o valor principal geralmente é "Saldo Devedor Remanescente" ou "Valor Total Confessado"
+- Em contratos de serviços (negociação de dívida, etc.), o valor_divida pode ser null se não houver dívida direta no contrato
+- Quantidade de parcelas pode estar com zeros à esquerda (053 = 53)
+- Se uma informação não estiver clara ou não existir, deixe como None/null
+- SEMPRE procure no documento inteiro, não apenas nas primeiras páginas
+- CRÍTICO: O campo "observacoes" DEVE ser sempre completo e bem formatado. NÃO corte o texto no meio. Se o texto for muito longo, resuma mas mantenha a análise de irregularidades completa.
+- Para observações: escreva em parágrafos completos e bem formatados, sem quebras de linha no meio das palavras. Inclua:
+  * Informações do bem financiado (marca, modelo, ano)
+  * Análise de possíveis irregularidades:
+    - Taxas de juros excessivas (acima de 5% ao mês pode ser considerado alto)
+    - CET muito elevado ou não transparente
+    - Cláusulas que podem violar o CDC
+    - Irregularidades com normas do BACEN/CMN
+    - Encargos, tarifas ou multas excessivas
+    - Condições abusivas ou desproporcionais
+    - Falta de transparência
+  * Outras informações relevantes
+- CRÍTICO PARA OBSERVAÇÕES: Você DEVE SEMPRE incluir uma análise explícita de irregularidades. Procure e identifique:
+  * Taxa de juros acima de 3% a.m. (pode ser considerada alta) ou acima de 5% a.m. (MUITO ALTA, possivelmente abusiva)
+  * CET muito acima da taxa de juros (diferença > 2% indica encargos excessivos)
+  * CET acima de 60% a.a. (pode ser considerado alto)
+  * Multas acima de 2% (abusivas segundo CDC)
+  * Juros moratórios acima de 1% ao mês (podem ser abusivos)
+  * Falta de transparência nas informações
+  * Cláusulas que podem violar o CDC (Código de Defesa do Consumidor)
+  * Violações potenciais de normas do BACEN/CMN
+  * Encargos ou tarifas desproporcionais
+- OBRIGATÓRIO: Sempre termine as observações com uma seção específica sobre irregularidades encontradas. Se encontrar, liste cada uma explicitamente. Se não encontrar irregularidades evidentes, ainda assim mencione se há taxas altas ou condições questionáveis, e diga claramente "Não foram identificadas irregularidades evidentes no contrato".
+- IMPORTANTE: Escreva as observações em parágrafos completos e coerentes, separados por quebras de linha duplas (\n\n). Não use espaços entre caracteres de uma mesma palavra. Use R$ para valores monetários (padrão brasileiro).
+
+{format_instructions}"""),
+            ("human", """Analise o seguinte contrato e extraia as informações solicitadas. O contrato pode ser de QUALQUER TIPO (financiamento, empréstimo, aditivo de renegociação, serviço de negociação de dívida, etc.) - procure cuidadosamente em TODAS as seções.
+
+CRÍTICO - OBSERVAÇÕES DEVEM TER 2 PARÁGRAFOS OBRIGATÓRIOS (MÁXIMO 500 palavras no total):
+
+PARÁGRAFO 1 (máximo 200 palavras): Informações básicas do contrato (valor, parcelas, taxas, bem financiado ou objeto do contrato, etc.)
+
+PARÁGRAFO 2 (máximo 300 palavras): ANÁLISE OBRIGATÓRIA DE IRREGULARIDADES E CLÁUSULAS ABUSIVAS
+Você DEVE SEMPRE incluir este segundo parágrafo analisando:
+- Taxas de juros acima de 3% a.m. = ALTA (mencione explicitamente)
+- Taxas acima de 5% a.m. = MUITO ALTA e ABUSIVA (mencione explicitamente)
+- CET acima de 60% a.a. = ALTO (mencione explicitamente)
+- CET acima de 80% a.a. = MUITO ALTO e possivelmente abusivo
+- Multas acima de 2% = ABUSIVA segundo CDC (identifique explicitamente)
+- Juros moratórios acima de 1% ao mês = possivelmente ABUSIVO (identifique explicitamente)
+- Cláusulas que limitam direitos do consumidor
+- Condições não transparentes ou difíceis de entender
+- Qualquer cláusula que possa violar CDC ou normas BACEN/CMN
+
+SEMPRE termine o segundo parágrafo com: "IRREGULARIDADES IDENTIFICADAS: [liste cada uma]" OU "NÃO FORAM IDENTIFICADAS IRREGULARIDADES EVIDENTES, porém [mencione taxas altas ou condições questionáveis se houver]"
+
+IMPORTANTE: Mantenha as observações concisas mas completas. NÃO corte o texto no meio. O JSON DEVE estar completo e válido.
+
+Contrato a analisar:
+{contract_text}""")
+        ])
+    
+    def _detectar_provider(self) -> str:
+        """Detecta qual provider está disponível."""
+        # Prioridade: Gemini/Groq primeiro (mais baratos), depois Ollama, depois OpenAI
+        
+        # Prioridade: Groq primeiro (gratuito e rápido)
+        # Verifica Groq (gratuito, muito rápido)
+        if os.getenv("GROQ_API_KEY"):
+            return "groq"
+        
+        # Verifica Ollama (local, sempre disponível se instalado)
+        try:
+            import ollama
+            # Testa se o servidor está rodando
+            ollama.list()
+            return "ollama"
+        except:
+            pass
+        
+        # Verifica OpenAI (mais caro, mas funciona bem)
+        if os.getenv("OPENAI_API_KEY"):
+            return "openai"
+        
+        raise ValueError(
+            "Nenhum provider de IA configurado. Configure pelo menos um:\n"
+            "- Groq (GRATUITO): GROQ_API_KEY no .env\n"
+            "- Ollama (GRÁTIS, local): Instale em https://ollama.ai\n"
+            "- OpenAI: OPENAI_API_KEY no .env"
+        )
+    
+    def _inicializar_llm(self, model_name: Optional[str]):
+        """Inicializa o LLM baseado no provider."""
+        if self.provider == "ollama":
+            from langchain_ollama import ChatOllama
+            model = model_name or "llama3.2"  # Modelo gratuito e bom
+            return ChatOllama(model=model, temperature=0.0)
+        
+        elif self.provider == "groq":
+            from langchain_groq import ChatGroq
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise ValueError("GROQ_API_KEY não encontrada no .env")
+            # Modelos disponíveis: llama-3.3-70b-versatile, llama-3.1-8b-instant
+            # Tenta modelos na ordem de preferência
+            modelos_disponiveis = model_name or ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+            if isinstance(modelos_disponiveis, str):
+                modelos_disponiveis = [modelos_disponiveis]
+            
+            for modelo in modelos_disponiveis:
+                try:
+                    return ChatGroq(model=modelo, temperature=0.0, groq_api_key=api_key)
+                except Exception as e:
+                    if "decommissioned" in str(e) or "not found" in str(e).lower():
+                        continue
+                    raise
+            raise Exception(f"Nenhum modelo Groq funcionou. Tentei: {modelos_disponiveis}")
+        
+        elif self.provider == "openai":
+            from langchain_openai import ChatOpenAI
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY não encontrada no .env")
+            model = model_name or "gpt-4o-mini"
+            return ChatOpenAI(model=model, temperature=0.0, api_key=api_key)
+        
+        else:
+            raise ValueError(f"Provider desconhecido: {self.provider}")
+    
+    def _limpar_observacoes(self, texto: str) -> str:
+        """
+        Limpa apenas problemas específicos de formatação, sem alterar texto já correto.
+        Apenas corrige valores monetários que não usam R$ e remove espaços múltiplos.
+        """
+        if not texto:
+            return texto
+        
+        import re
+        
+        # Apenas corrige valores monetários que não usam R$ (padrão brasileiro)
+        # "R 19.653" ou "R19.653" -> "R$ 19.653"
+        texto = re.sub(r'\bR\s+(\d)', r'R$ \1', texto)
+        texto = re.sub(r'\bR(\d)', r'R$ \1', texto)
+        
+        # Remove apenas espaços múltiplos (preserva quebras de linha)
+        texto = re.sub(r'[ \t]+', ' ', texto)
+        
+        # Remove espaços no início e fim de linhas (mas preserva quebras de linha)
+        linhas = texto.split('\n')
+        linhas = [linha.strip() for linha in linhas]
+        texto = '\n'.join(linhas)
+        
+        # Remove linhas vazias múltiplas (mantém no máximo uma linha vazia)
+        texto = re.sub(r'\n\n\n+', '\n\n', texto)
+        
+        return texto.strip()
+    
+    def _truncar_texto(self, text: str, max_chars: int = 8000) -> str:
+        """
+        Trunca o texto mantendo início e fim (onde geralmente estão as informações importantes).
+        
+        Args:
+            text: Texto original
+            max_chars: Tamanho máximo aproximado (deixa margem para o prompt)
+            
+        Returns:
+            Texto truncado preservando início e fim
+        """
+        if len(text) <= max_chars:
+            return text
+        
+        # Mantém início (dados do cliente) e fim (condições finais)
+        chars_inicio = 3500  # Primeiros 3500 chars (dados principais)
+        chars_fim = 2000     # Últimos 2000 chars (condições, assinatura)
+        
+        inicio = text[:chars_inicio]
+        fim = text[-chars_fim:]
+        
+        return f"{inicio}\n\n[... texto do meio removido para reduzir tamanho ...]\n\n{fim}"
+    
+    def _truncar_texto_inteligente(self, text: str, max_chars: int = 7000) -> str:
+        """
+        Trunca o texto mantendo início e fim (onde geralmente estão as informações importantes).
+        Limite do Groq: ~12000 tokens/minuto, 1 token ≈ 4 chars, então ~7000 chars é seguro.
+        """
+        if len(text) <= max_chars:
+            return text
+        
+        # Mantém início (primeiros 4000 chars) e fim (últimos 2500 chars)
+        chars_inicio = 4000
+        chars_fim = 2500
+        
+        inicio = text[:chars_inicio]
+        fim = text[-chars_fim:]
+        
+        return f"{inicio}\n\n[... texto intermediário removido para reduzir tamanho ...]\n\n{fim}"
+    
+    def extract_from_text(self, text: str) -> ContratoInfo:
+        """Extrai informações de um contrato a partir de texto."""
+        if not text or not text.strip():
+            raise ValueError("Texto do contrato não pode estar vazio")
+        
+        processed_text = self.document_processor.clean_text(text)
+        
+        # Trunca o texto se necessário (limite do Groq é ~12000 tokens/minuto)
+        # Mantém início e fim onde estão os dados principais
+        processed_text = self._truncar_texto_inteligente(processed_text, max_chars=7000)
+        
+        chain = self.prompt_template | self.llm | self.output_parser
+        
+        try:
+            result = chain.invoke({
+                "contract_text": processed_text,
+                "format_instructions": self.output_parser.get_format_instructions()
+            })
+            
+            # Não altera observações - o JSON já vem correto da IA
+            # A função _limpar_observacoes só deve ser chamada manualmente se necessário
+            
+            return result
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Se for erro de parsing (JSON incompleto), tenta novamente com texto menor
+            if "Failed to parse" in error_msg or "parse" in error_msg.lower() or "json" in error_msg.lower():
+                # Reduz o texto para evitar corte do JSON
+                processed_text = self._truncar_texto_inteligente(processed_text, max_chars=5000)
+                try:
+                    result = chain.invoke({
+                        "contract_text": processed_text,
+                        "format_instructions": self.output_parser.get_format_instructions()
+                    })
+                    return result
+                except Exception as e2:
+                    raise Exception(f"Erro ao extrair informações do contrato (JSON incompleto): {str(e2)}")
+            
+            if "413" in error_msg or "too large" in error_msg.lower() or "tokens per minute" in error_msg.lower():
+                # Se ainda for muito grande, reduz mais
+                processed_text = self._truncar_texto_inteligente(processed_text, max_chars=5000)
+                result = chain.invoke({
+                    "contract_text": processed_text,
+                    "format_instructions": self.output_parser.get_format_instructions()
+                })
+                return result
+            
+            raise Exception(f"Erro ao extrair informações do contrato: {str(e)}")
+    
+    def extract_from_pdf(self, pdf_path: str) -> ContratoInfo:
+        """Extrai informações de um contrato a partir de um arquivo PDF."""
+        text = self.document_processor.extract_text_from_pdf(pdf_path)
+        return self.extract_from_text(text)
+    
+    def extract_to_dict(self, text: Optional[str] = None, pdf_path: Optional[str] = None) -> dict:
+        """Extrai informações e retorna como dicionário."""
+        if pdf_path:
+            result = self.extract_from_pdf(pdf_path)
+        elif text:
+            result = self.extract_from_text(text)
+        else:
+            raise ValueError("Forneça text ou pdf_path")
+        
+        return result.model_dump()
+
