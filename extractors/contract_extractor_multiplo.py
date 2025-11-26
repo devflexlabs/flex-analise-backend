@@ -225,19 +225,28 @@ Contrato a analisar:
             api_key = os.getenv("GROQ_API_KEY")
             if not api_key:
                 raise ValueError("GROQ_API_KEY não encontrada no .env")
-            # Modelos disponíveis: llama-3.3-70b-versatile, llama-3.1-8b-instant
-            # Tenta modelos na ordem de preferência
-            modelos_disponiveis = model_name or ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+            # Modelos disponíveis: usa o menor primeiro (consome menos tokens)
+            # llama-3.1-8b-instant é mais eficiente e consome menos tokens
+            modelos_disponiveis = model_name or ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
             if isinstance(modelos_disponiveis, str):
                 modelos_disponiveis = [modelos_disponiveis]
             
+            ultimo_erro = None
             for modelo in modelos_disponiveis:
                 try:
                     return ChatGroq(model=modelo, temperature=0.0, groq_api_key=api_key)
                 except Exception as e:
-                    if "decommissioned" in str(e) or "not found" in str(e).lower():
+                    erro_str = str(e).lower()
+                    if "decommissioned" in erro_str or "not found" in erro_str:
                         continue
-                    raise
+                    elif "rate_limit" in erro_str or "429" in erro_str or "tokens per day" in erro_str:
+                        ultimo_erro = f"Limite de tokens do Groq excedido. Modelo tentado: {modelo}. " \
+                                     f"O limite diário de tokens foi atingido. Tente novamente mais tarde ou configure outro provedor de IA."
+                        continue
+                    ultimo_erro = str(e)
+            
+            if ultimo_erro:
+                raise Exception(f"Erro ao usar Groq: {ultimo_erro}")
             raise Exception(f"Nenhum modelo Groq funcionou. Tentei: {modelos_disponiveis}")
         
         elif self.provider == "openai":
@@ -366,6 +375,14 @@ Contrato a analisar:
                     "format_instructions": self.output_parser.get_format_instructions()
                 })
                 return result
+            
+            # Trata erro de rate limit do Groq
+            if "rate_limit" in error_msg.lower() or "429" in error_msg or "tokens per day" in error_msg.lower() or "rate limit reached" in error_msg.lower():
+                raise Exception(
+                    f"Limite de tokens do Groq excedido. O limite diário de tokens foi atingido. "
+                    f"Por favor, tente novamente mais tarde ou configure outro provedor de IA (OpenAI, Gemini, Ollama) no arquivo .env. "
+                    f"Erro detalhado: {error_msg}"
+                )
             
             raise Exception(f"Erro ao extrair informações do contrato: {str(e)}")
     
