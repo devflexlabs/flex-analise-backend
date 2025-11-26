@@ -15,8 +15,18 @@ script_dir = script_path.parent
 current_dir = Path.cwd().resolve()
 
 # Detecta se estamos no repositório clonado (estrutura plana) ou projeto original
-is_cloned_repo = script_dir.name == "api" and (script_dir.parent / "extractors").exists()
-is_original_repo = script_dir.parent.name == "backend" and (script_dir.parent.parent / "backend" / "extractors").exists()
+# Repositório clonado: api/run_api.py na raiz, com extractors/ na mesma raiz (NÃO dentro de pasta backend)
+is_cloned_repo = (
+    script_dir.name == "api" 
+    and (script_dir.parent / "extractors").exists() 
+    and script_dir.parent.name != "backend"  # Não está dentro de uma pasta backend
+)
+
+# Projeto original: backend/api/run_api.py, com backend/extractors/ na raiz do projeto
+is_original_repo = (
+    script_dir.parent.name == "backend" 
+    and (script_dir.parent / "extractors").exists()
+)
 
 if is_cloned_repo:
     # Repositório clonado: estrutura plana (api/, extractors/, etc. na raiz)

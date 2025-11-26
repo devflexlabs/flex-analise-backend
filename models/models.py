@@ -19,6 +19,12 @@ class ContratoInfo(BaseModel):
     numero_contrato: Optional[str] = Field(None, description="Número do contrato")
     cpf_cnpj: Optional[str] = Field(None, description="CPF ou CNPJ do cliente")
     tipo_contrato: Optional[str] = Field(None, description="Tipo de contrato (empréstimo, financiamento, etc.)")
+    # Informações do veículo (se aplicável)
+    veiculo_marca: Optional[str] = Field(None, description="Marca do veículo")
+    veiculo_modelo: Optional[str] = Field(None, description="Modelo do veículo")
+    veiculo_ano: Optional[str] = Field(None, description="Ano do veículo")
+    veiculo_cor: Optional[str] = Field(None, description="Cor do veículo")
+    veiculo_placa: Optional[str] = Field(None, description="Placa do veículo (se mencionada)")
     observacoes: Optional[str] = Field(None, description="Observações adicionais relevantes")
     
     class Config:

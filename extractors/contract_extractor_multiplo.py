@@ -73,7 +73,13 @@ Extraia as seguintes informações quando disponíveis:
 8. Número do contrato/proposta/aditivo
 9. CPF ou CNPJ do cliente (não da empresa/banco - procure na seção do cliente)
 10. Tipo de contrato (financiamento, empréstimo, aditivo de renegociação, etc.)
-11. Observações relevantes: escreva um texto completo e bem formatado. OBRIGATORIAMENTE inclua DOIS PARÁGRAFOS:
+11. Informações do veículo (se aplicável - apenas para contratos de financiamento de veículos):
+    - Marca do veículo (ex: NISSAN, TOYOTA, FORD, etc.)
+    - Modelo completo do veículo (ex: V-DRIVE DRIVE 1.0 12V A4B, COROLLA XEI 2.0 FLEX, etc.)
+    - Ano/Modelo do veículo (ex: 2021, 2012, etc.)
+    - Cor do veículo (ex: branca, preta, prata, etc.)
+    - Placa do veículo (se mencionada no contrato)
+12. Observações relevantes: escreva um texto completo e bem formatado. OBRIGATORIAMENTE inclua DOIS PARÁGRAFOS:
 
     PARÁGRAFO 1 - Informações do contrato:
     - Informações sobre o bem financiado: marca, modelo, ano, valor à vista (se aplicável)
