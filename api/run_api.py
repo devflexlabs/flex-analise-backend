@@ -6,16 +6,18 @@ import sys
 from pathlib import Path
 import os
 
-# Adiciona o diretório raiz ao path (sobe 3 níveis: api -> backend -> raiz)
+# Adiciona o diretório raiz do projeto ao path
+# Sobe 2 níveis: api -> backend -> raiz do projeto
 root_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(root_dir))
 
-# Muda o diretório de trabalho para a raiz
+# Muda o diretório de trabalho para a raiz do projeto
 os.chdir(root_dir)
 
 # Importa e executa a API
 if __name__ == "__main__":
     import uvicorn
     # Usa string de importação para o reload funcionar
+    # O path deve ser relativo ao diretório raiz onde está o módulo backend
     uvicorn.run("backend.api.api_server:app", host="0.0.0.0", port=8000, reload=True)
 
