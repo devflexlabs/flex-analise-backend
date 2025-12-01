@@ -20,11 +20,12 @@ class BackendFinder:
         self.root_path = Path(root_path)
     
     def find_spec(self, name, path, target=None):
+        # Garante que o módulo backend existe
+        if "backend" not in sys.modules:
+            backend_module = type(sys)("backend")
+            sys.modules["backend"] = backend_module
+        
         if name == "backend":
-            # Cria o módulo backend se não existir
-            if "backend" not in sys.modules:
-                backend_module = type(sys)("backend")
-                sys.modules["backend"] = backend_module
             # Retorna None para deixar o Python usar o módulo já criado
             return None
         
@@ -34,10 +35,32 @@ class BackendFinder:
                 module_name = parts[1]
                 module_dir = self.root_path / module_name
                 if module_dir.exists() and (module_dir / "__init__.py").exists():
-                    # Garante que o módulo backend existe
-                    if "backend" not in sys.modules:
-                        backend_module = type(sys)("backend")
-                        sys.modules["backend"] = backend_module
+                    # Garante que todos os módulos dependentes existem primeiro
+                    # (extractors depende de processors e models)
+                    if module_name == "extractors":
+                        for dep_name in ["models", "processors"]:
+                            dep_module_name = f"backend.{dep_name}"
+                            if dep_module_name not in sys.modules:
+                                dep_dir = self.root_path / dep_name
+                                if dep_dir.exists() and (dep_dir / "__init__.py").exists():
+                                    dep_spec = importlib.util.spec_from_file_location(
+                                        dep_module_name,
+                                        dep_dir / "__init__.py",
+                                        submodule_search_locations=[str(dep_dir)]
+                                    )
+                                    if dep_spec:
+                                        if not dep_spec.loader:
+                                            dep_spec.loader = importlib.machinery.SourceFileLoader(
+                                                dep_module_name, str(dep_dir / "__init__.py")
+                                            )
+                                        try:
+                                            dep_module = importlib.util.module_from_spec(dep_spec)
+                                            sys.modules[dep_module_name] = dep_module
+                                            dep_spec.loader.exec_module(dep_module)
+                                            if "backend" in sys.modules:
+                                                setattr(sys.modules["backend"], dep_name, dep_module)
+                                        except Exception:
+                                            pass
                     
                     spec = importlib.util.spec_from_file_location(
                         name,
@@ -45,6 +68,9 @@ class BackendFinder:
                         submodule_search_locations=[str(module_dir)]
                     )
                     if spec:
+                        # Garante que o loader está configurado
+                        if not spec.loader:
+                            spec.loader = importlib.machinery.SourceFileLoader(name, str(module_dir / "__init__.py"))
                         return spec
             elif len(parts) == 3:  # backend.extractors.contract_extractor_multiplo, etc.
                 module_name = parts[1]
@@ -52,11 +78,7 @@ class BackendFinder:
                 module_dir = self.root_path / module_name
                 submodule_file = module_dir / f"{submodule_name}.py"
                 if submodule_file.exists():
-                    # Garante que o módulo backend e o submódulo existem
-                    if "backend" not in sys.modules:
-                        backend_module = type(sys)("backend")
-                        sys.modules["backend"] = backend_module
-                    
+                    # Garante que o módulo pai existe primeiro
                     parent_module_name = f"backend.{module_name}"
                     if parent_module_name not in sys.modules:
                         # Cria o módulo pai se não existir
@@ -65,12 +87,19 @@ class BackendFinder:
                             module_dir / "__init__.py",
                             submodule_search_locations=[str(module_dir)]
                         )
-                        if parent_spec and parent_spec.loader:
-                            parent_module = importlib.util.module_from_spec(parent_spec)
-                            sys.modules[parent_module_name] = parent_module
-                            parent_spec.loader.exec_module(parent_module)
-                            if "backend" in sys.modules:
-                                setattr(sys.modules["backend"], module_name, parent_module)
+                        if parent_spec:
+                            if not parent_spec.loader:
+                                parent_spec.loader = importlib.machinery.SourceFileLoader(
+                                    parent_module_name, str(module_dir / "__init__.py")
+                                )
+                            try:
+                                parent_module = importlib.util.module_from_spec(parent_spec)
+                                sys.modules[parent_module_name] = parent_module
+                                parent_spec.loader.exec_module(parent_module)
+                                if "backend" in sys.modules:
+                                    setattr(sys.modules["backend"], module_name, parent_module)
+                            except Exception:
+                                pass  # Ignora erros ao criar módulo pai
                     
                     spec = importlib.util.spec_from_file_location(
                         name,
@@ -78,6 +107,9 @@ class BackendFinder:
                         submodule_search_locations=[str(module_dir)]
                     )
                     if spec:
+                        # Garante que o loader está configurado
+                        if not spec.loader:
+                            spec.loader = importlib.machinery.SourceFileLoader(name, str(submodule_file))
                         return spec
         return None
 
