@@ -25,12 +25,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia o resto do código (último para não invalidar cache das dependências)
 COPY . .
 
-# Configura PYTHONPATH
+# Configura PYTHONPATH - adiciona /app para encontrar módulos backend
 ENV PYTHONPATH=/app:$PYTHONPATH
 
 # Expõe a porta
 EXPOSE 8000
 
-# Comando para iniciar
-CMD ["python", "-m", "backend.api.run_api"]
+# Comando para iniciar - usa o script run_api.py diretamente
+# O run_api.py já faz o setup correto do path
+CMD ["python", "backend/api/run_api.py"]
 
