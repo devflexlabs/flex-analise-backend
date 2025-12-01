@@ -20,41 +20,86 @@ class BackendFinder:
         self.root_path = Path(root_path)
     
     def find_spec(self, name, path, target=None):
+        if name == "backend":
+            # Cria o módulo backend se não existir
+            if "backend" not in sys.modules:
+                backend_module = type(sys)("backend")
+                sys.modules["backend"] = backend_module
+            # Retorna None para deixar o Python usar o módulo já criado
+            return None
+        
         if name.startswith("backend."):
             parts = name.split(".")
             if len(parts) == 2:  # backend.extractors, backend.processors, etc.
                 module_name = parts[1]
                 module_dir = self.root_path / module_name
                 if module_dir.exists() and (module_dir / "__init__.py").exists():
-                    return importlib.util.spec_from_file_location(
+                    # Garante que o módulo backend existe
+                    if "backend" not in sys.modules:
+                        backend_module = type(sys)("backend")
+                        sys.modules["backend"] = backend_module
+                    
+                    spec = importlib.util.spec_from_file_location(
                         name,
                         module_dir / "__init__.py",
                         submodule_search_locations=[str(module_dir)]
                     )
+                    if spec:
+                        return spec
             elif len(parts) == 3:  # backend.extractors.contract_extractor_multiplo, etc.
                 module_name = parts[1]
                 submodule_name = parts[2]
                 module_dir = self.root_path / module_name
                 submodule_file = module_dir / f"{submodule_name}.py"
                 if submodule_file.exists():
-                    return importlib.util.spec_from_file_location(
+                    # Garante que o módulo backend e o submódulo existem
+                    if "backend" not in sys.modules:
+                        backend_module = type(sys)("backend")
+                        sys.modules["backend"] = backend_module
+                    
+                    parent_module_name = f"backend.{module_name}"
+                    if parent_module_name not in sys.modules:
+                        # Cria o módulo pai se não existir
+                        parent_spec = importlib.util.spec_from_file_location(
+                            parent_module_name,
+                            module_dir / "__init__.py",
+                            submodule_search_locations=[str(module_dir)]
+                        )
+                        if parent_spec and parent_spec.loader:
+                            parent_module = importlib.util.module_from_spec(parent_spec)
+                            sys.modules[parent_module_name] = parent_module
+                            parent_spec.loader.exec_module(parent_module)
+                            if "backend" in sys.modules:
+                                setattr(sys.modules["backend"], module_name, parent_module)
+                    
+                    spec = importlib.util.spec_from_file_location(
                         name,
                         submodule_file,
                         submodule_search_locations=[str(module_dir)]
                     )
+                    if spec:
+                        return spec
         return None
+
+# Sempre configura (mesmo se já existir, para garantir que funcione em processos filhos do uvicorn)
+# Adiciona a raiz ao path primeiro
+root_str = str(root_dir)
+if root_str not in sys.path:
+    sys.path.insert(0, root_str)
+
+# Adiciona o finder customizado ao meta_path (sempre, para garantir que funcione em processos filhos)
+backend_finder = None
+for finder in sys.meta_path:
+    if isinstance(finder, BackendFinder):
+        backend_finder = finder
+        break
+
+if backend_finder is None:
+    backend_finder = BackendFinder(root_dir)
+    sys.meta_path.insert(0, backend_finder)
 
 # Verifica se o módulo backend já existe
 if "backend" not in sys.modules:
-    # Adiciona a raiz ao path primeiro
-    root_str = str(root_dir)
-    if root_str not in sys.path:
-        sys.path.insert(0, root_str)
-    
-    # Adiciona o finder customizado ao meta_path
-    if not any(isinstance(finder, BackendFinder) for finder in sys.meta_path):
-        sys.meta_path.insert(0, BackendFinder(root_dir))
-    
     # Cria o módulo backend
     backend_module = type(sys)("backend")
     sys.modules["backend"] = backend_module
