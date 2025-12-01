@@ -82,4 +82,6 @@ if __name__ == "__main__":
     
     # Desabilita reload para evitar problemas com imports em processos filhos
     # Use --reload na linha de comando se precisar de hot reload
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+    # Usa PORT da variável de ambiente (Railway) ou 8000 como padrão
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
