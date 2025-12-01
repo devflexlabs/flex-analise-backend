@@ -11,7 +11,7 @@ class ContratoInfo(BaseModel):
     
     nome_cliente: str = Field(description="Nome completo do cliente/devedor")
     valor_divida: Optional[float] = Field(None, description="Valor total da dívida em reais (se aplicável)")
-    quantidade_parcelas: int = Field(description="Número total de parcelas")
+    quantidade_parcelas: Optional[int] = Field(None, description="Número total de parcelas (se disponível)")
     valor_parcela: Optional[float] = Field(None, description="Valor de cada parcela")
     data_vencimento_primeira: Optional[str] = Field(None, description="Data de vencimento da primeira parcela")
     data_vencimento_ultima: Optional[str] = Field(None, description="Data de vencimento da última parcela")

@@ -136,3 +136,5 @@ python -c "import openai, langchain, fastapi; print('✅ Dependências OK')"
 4. Considere usar Python 3.11 ou 3.12 em vez de 3.14
 
 
+
+

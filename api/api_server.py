@@ -2,6 +2,9 @@
 API FastAPI para servir o extrator de contratos.
 Pode ser consumida pela aplicação Next.js.
 """
+# IMPORTANTE: Importa o setup do backend ANTES de qualquer import de backend.*
+from ._setup_backend import *  # noqa: F401, F403
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

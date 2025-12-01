@@ -63,10 +63,10 @@ CAMpos E VARIAÇÕES COMUNS:
 - Número contrato: "Nº", "Número", "Proposta", "Contrato nº", "Cédula de Crédito Bancário Nº", "Aditivo de Renegociação nº"
 
 Extraia as seguintes informações quando disponíveis:
-1. Nome completo do cliente/devedor/emitente (procure em várias seções, incluindo assinatura)
-2. Valor total da dívida/financiamento (priorize "Valor Total Financiado" ou "Saldo Devedor Remanescente" em renegociações)
-3. Quantidade de parcelas (pode estar escrito como "053" ou "53")
-4. Valor de cada parcela mensal
+1. Nome completo do cliente/devedor/emitente (procure em várias seções, incluindo assinatura) - OBRIGATÓRIO
+2. Valor total da dívida/financiamento (priorize "Valor Total Financiado" ou "Saldo Devedor Remanescente" em renegociações) - pode ser null se não encontrado
+3. Quantidade de parcelas (pode estar escrito como "053" ou "53") - pode ser null se não encontrado no contrato
+4. Valor de cada parcela mensal - pode ser null se não encontrado
 5. Data de vencimento da primeira parcela (formato YYYY-MM-DD)
 6. Data de vencimento da última parcela (se disponível)
 7. Taxa de juros mensal da OPERAÇÃO (priorize % ao mês) - NÃO confundir com CET. Use a "Taxa de juros da operação", não o "CET" (Custo Efetivo Total)
@@ -178,7 +178,11 @@ Você DEVE SEMPRE incluir este segundo parágrafo analisando:
 
 SEMPRE termine o segundo parágrafo com: "IRREGULARIDADES IDENTIFICADAS: [liste cada uma]" OU "NÃO FORAM IDENTIFICADAS IRREGULARIDADES EVIDENTES, porém [mencione taxas altas ou condições questionáveis se houver]"
 
-IMPORTANTE: Mantenha as observações concisas mas completas. NÃO corte o texto no meio. O JSON DEVE estar completo e válido.
+IMPORTANTE: 
+- Mantenha as observações concisas mas completas. NÃO corte o texto no meio. O JSON DEVE estar completo e válido.
+- Campos numéricos (quantidade_parcelas, valor_divida, valor_parcela, taxa_juros) podem ser null se não estiverem disponíveis no contrato.
+- Use null (não 0) quando a informação não estiver presente no documento.
+- O campo nome_cliente é OBRIGATÓRIO e sempre deve ter um valor.
 
 Contrato a analisar:
 {contract_text}""")
@@ -311,17 +315,20 @@ Contrato a analisar:
         
         return f"{inicio}\n\n[... texto do meio removido para reduzir tamanho ...]\n\n{fim}"
     
-    def _truncar_texto_inteligente(self, text: str, max_chars: int = 7000) -> str:
+    def _truncar_texto_inteligente(self, text: str, max_chars: int = 3000) -> str:
         """
         Trunca o texto mantendo início e fim (onde geralmente estão as informações importantes).
-        Limite do Groq: ~12000 tokens/minuto, 1 token ≈ 4 chars, então ~7000 chars é seguro.
+        Limite do Groq: 6000 tokens/minuto (TPM) para modelo llama-3.1-8b-instant.
+        Considerando que o prompt consome ~2000-2500 tokens, deixamos ~3500 tokens para o texto.
+        1 token ≈ 4 chars, então ~3000 chars é seguro para o texto do contrato.
         """
         if len(text) <= max_chars:
             return text
         
-        # Mantém início (primeiros 4000 chars) e fim (últimos 2500 chars)
-        chars_inicio = 4000
-        chars_fim = 2500
+        # Calcula proporção para manter início e fim
+        # Mantém mais do início (onde estão dados principais) e menos do fim
+        chars_inicio = int(max_chars * 0.65)  # 65% no início
+        chars_fim = int(max_chars * 0.30)     # 30% no fim (5% para mensagem de truncamento)
         
         inicio = text[:chars_inicio]
         fim = text[-chars_fim:]
@@ -335,9 +342,10 @@ Contrato a analisar:
         
         processed_text = self.document_processor.clean_text(text)
         
-        # Trunca o texto se necessário (limite do Groq é ~12000 tokens/minuto)
-        # Mantém início e fim onde estão os dados principais
-        processed_text = self._truncar_texto_inteligente(processed_text, max_chars=7000)
+        # Trunca o texto se necessário (limite do Groq é 6000 tokens/minuto para llama-3.1-8b-instant)
+        # O prompt consome ~2000-2500 tokens, então deixamos ~3500 tokens para o texto
+        # 1 token ≈ 4 chars, então ~14000 chars seria o limite teórico, mas para ser conservador usamos 3000 chars
+        processed_text = self._truncar_texto_inteligente(processed_text, max_chars=3000)
         
         chain = self.prompt_template | self.llm | self.output_parser
         
@@ -354,10 +362,11 @@ Contrato a analisar:
         except Exception as e:
             error_msg = str(e)
             
-            # Se for erro de parsing (JSON incompleto), tenta novamente com texto menor
-            if "Failed to parse" in error_msg or "parse" in error_msg.lower() or "json" in error_msg.lower():
-                # Reduz o texto para evitar corte do JSON
-                processed_text = self._truncar_texto_inteligente(processed_text, max_chars=5000)
+            # Se for erro de parsing (JSON incompleto ou validação), tenta novamente com texto menor
+            if "Failed to parse" in error_msg or "parse" in error_msg.lower() or "json" in error_msg.lower() or "validation error" in error_msg.lower():
+                # Tenta novamente com texto menor para evitar corte do JSON
+                original_cleaned = self.document_processor.clean_text(text)
+                processed_text = self._truncar_texto_inteligente(original_cleaned, max_chars=3000)
                 try:
                     result = chain.invoke({
                         "contract_text": processed_text,
@@ -365,16 +374,50 @@ Contrato a analisar:
                     })
                     return result
                 except Exception as e2:
-                    raise Exception(f"Erro ao extrair informações do contrato (JSON incompleto): {str(e2)}")
+                    # Se ainda falhar, tenta com texto ainda menor
+                    processed_text = self._truncar_texto_inteligente(original_cleaned, max_chars=2000)
+                    try:
+                        result = chain.invoke({
+                            "contract_text": processed_text,
+                            "format_instructions": self.output_parser.get_format_instructions()
+                        })
+                        return result
+                    except Exception as e3:
+                        raise Exception(f"Erro ao extrair informações do contrato (JSON incompleto ou inválido): {str(e3)}")
             
-            if "413" in error_msg or "too large" in error_msg.lower() or "tokens per minute" in error_msg.lower():
-                # Se ainda for muito grande, reduz mais
-                processed_text = self._truncar_texto_inteligente(processed_text, max_chars=5000)
-                result = chain.invoke({
-                    "contract_text": processed_text,
-                    "format_instructions": self.output_parser.get_format_instructions()
-                })
-                return result
+            if "413" in error_msg or "too large" in error_msg.lower() or "tokens per minute" in error_msg.lower() or "tpm" in error_msg.lower():
+                # Se ainda for muito grande, reduz progressivamente
+                # Usa o texto original limpo, não o já truncado
+                original_cleaned = self.document_processor.clean_text(text)
+                # Tenta com tamanhos menores: 2000, 1500, 1000
+                tamanhos = [2000, 1500, 1000]
+                ultimo_erro = None
+                
+                for tamanho in tamanhos:
+                    try:
+                        processed_text_reduzido = self._truncar_texto_inteligente(original_cleaned, max_chars=tamanho)
+                        result = chain.invoke({
+                            "contract_text": processed_text_reduzido,
+                            "format_instructions": self.output_parser.get_format_instructions()
+                        })
+                        return result
+                    except Exception as e2:
+                        error_msg2 = str(e2)
+                        if "413" in error_msg2 or "too large" in error_msg2.lower() or "tokens per minute" in error_msg2.lower() or "tpm" in error_msg2.lower():
+                            ultimo_erro = e2
+                            continue
+                        else:
+                            # Outro tipo de erro, propaga
+                            raise e2
+                
+                # Se todos os tamanhos falharam, lança erro explicativo
+                if ultimo_erro:
+                    raise Exception(
+                        f"O contrato é muito grande para processar. Mesmo reduzindo o tamanho, ainda excede o limite de tokens do Groq (6000 TPM). "
+                        f"Por favor, tente com um contrato menor ou configure outro provedor de IA (OpenAI, Gemini, Ollama) no arquivo .env. "
+                        f"Erro detalhado: {str(ultimo_erro)}"
+                    )
+                raise Exception(f"Erro ao processar contrato (muito grande): {error_msg}")
             
             # Trata erro de rate limit do Groq
             if "rate_limit" in error_msg.lower() or "429" in error_msg or "tokens per day" in error_msg.lower() or "rate limit reached" in error_msg.lower():
