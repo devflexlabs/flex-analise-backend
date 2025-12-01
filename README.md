@@ -1,6 +1,6 @@
 # Flex Análise - Backend API
 
-API Python para extração e análise inteligente de informações de contratos financeiros usando múltiplos provedores de IA.
+API Python para extração e análise inteligente de informações de contratos financeiros usando groq.
 
 ## 🚀 Tecnologias
 
@@ -157,12 +157,9 @@ Extrai informações de um contrato financeiro (PDF ou imagem).
 }
 ```
 
-## 🧠 Provedores de IA Suportados
+## 🧠 Provedor de IA Suportado
 
-- **OpenAI** - GPT-4, GPT-3.5
 - **Groq** - Mixtral, Llama (gratuito com limites)
-- **Google Gemini** - Gemini Pro, Gemini Flash
-- **Ollama** - Modelos locais (Llama, Mistral, etc.)
 
 O sistema escolhe automaticamente o melhor provedor disponível quando `IA_PROVIDER=auto`.
 
