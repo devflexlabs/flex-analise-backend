@@ -1,0 +1,23 @@
+openai>=1.0.0
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-ollama>=0.1.0
+langchain-google-genai>=1.0.0
+langchain-groq>=0.1.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+pandas>=2.0.0
+streamlit>=1.28.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+# easyocr>=1.7.0  # Removido - pode causar problemas no macOS. Use Tesseract ou Google Vision API para OCR.
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+# Opcionais para serviços em nuvem:
+# google-cloud-vision>=3.0.0  # Para Google Vision API
+# boto3>=1.28.0  # Para AWS Textract
+
+

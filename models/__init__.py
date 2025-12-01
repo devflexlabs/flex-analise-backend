@@ -6,3 +6,4 @@ from .models import ContratoInfo
 __all__ = ["ContratoInfo"]
 
 
+

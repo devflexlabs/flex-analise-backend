@@ -7,3 +7,4 @@ from .simple_extractor import SimpleContractExtractor
 __all__ = ["ContractExtractorMultiplo", "SimpleContractExtractor"]
 
 
+

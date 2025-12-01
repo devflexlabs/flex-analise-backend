@@ -19,6 +19,8 @@ API Python para extração e análise inteligente de informações de contratos 
 
 ## 🛠️ Instalação
 
+### Windows / Linux
+
 ```bash
 # Criar ambiente virtual (recomendado)
 python -m venv venv
@@ -26,12 +28,65 @@ python -m venv venv
 # Ativar ambiente virtual
 # Windows:
 venv\Scripts\activate
-# Linux/Mac:
+# Linux:
 source venv/bin/activate
 
 # Instalar dependências
 pip install -r requirements.txt
 ```
+
+### macOS
+
+No macOS, especialmente com Python 3.14, pode haver problemas ao instalar `easyocr` (que depende de `scikit-image`). Use o script de setup automático:
+
+```bash
+# Tornar o script executável
+chmod +x scripts/setup_macos.sh
+
+# Executar o script de setup
+./scripts/setup_macos.sh
+```
+
+O script irá:
+- Instalar dependências de build necessárias (pkg-config, meson, ninja) via Homebrew
+- Criar e ativar um ambiente virtual
+- Instalar dependências de forma otimizada para macOS
+- Lidar com problemas de compatibilidade do Python 3.14
+
+**Alternativa manual (se o script não funcionar):**
+
+```bash
+# 1. Instalar dependências de build
+brew install pkg-config meson ninja
+
+# 2. Criar ambiente virtual
+python3 -m venv venv
+source venv/bin/activate
+
+# 3. Atualizar pip
+pip install --upgrade pip setuptools wheel
+
+# 4. Instalar dependências básicas primeiro
+pip install numpy scipy pillow
+
+# 5. Instalar scikit-image (necessário para easyocr)
+pip install scikit-image
+
+# 6. Instalar demais dependências
+pip install -r requirements.txt
+```
+
+**Se ainda houver problemas com easyocr:**
+
+Se você não precisa de OCR local, pode usar uma versão alternativa do requirements sem `easyocr`:
+
+```bash
+# Criar requirements sem easyocr
+grep -v "easyocr" requirements.txt > requirements-no-ocr.txt
+pip install -r requirements-no-ocr.txt
+```
+
+O sistema ainda funcionará usando Tesseract ou outros provedores de OCR configurados.
 
 ## ⚙️ Configuração
 
@@ -178,4 +233,5 @@ uvicorn backend.api.api_server:app --reload --host 0.0.0.0 --port 8000
 ## 📄 Licença
 
 Proprietário - Grupo Flex
+
 
