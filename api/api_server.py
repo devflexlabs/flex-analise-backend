@@ -27,7 +27,11 @@ app = FastAPI(title="Extrator de Contratos Financeiros API")
 # Configura CORS para permitir requisições do Next.js
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Adicione outras origens se necessário
+    allow_origins=[
+        "https://flex-analise.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
