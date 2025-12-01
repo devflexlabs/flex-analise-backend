@@ -55,6 +55,9 @@ class BackendFinder:
                                             )
                                         try:
                                             dep_module = importlib.util.module_from_spec(dep_spec)
+                                            # CRÍTICO: Define __path__ para que seja reconhecido como pacote
+                                            dep_module.__path__ = [str(dep_dir)]
+                                            dep_module.__package__ = dep_module_name
                                             sys.modules[dep_module_name] = dep_module
                                             dep_spec.loader.exec_module(dep_module)
                                             if "backend" in sys.modules:
@@ -71,6 +74,12 @@ class BackendFinder:
                         # Garante que o loader está configurado
                         if not spec.loader:
                             spec.loader = importlib.machinery.SourceFileLoader(name, str(module_dir / "__init__.py"))
+                        # Se o módulo já existe mas não tem __path__, configura agora
+                        if name in sys.modules:
+                            existing_module = sys.modules[name]
+                            if not hasattr(existing_module, '__path__'):
+                                existing_module.__path__ = [str(module_dir)]
+                                existing_module.__package__ = name
                         return spec
             elif len(parts) == 3:  # backend.extractors.contract_extractor_multiplo, etc.
                 module_name = parts[1]
@@ -94,12 +103,21 @@ class BackendFinder:
                                 )
                             try:
                                 parent_module = importlib.util.module_from_spec(parent_spec)
+                                # CRÍTICO: Define __path__ para que seja reconhecido como pacote
+                                parent_module.__path__ = [str(module_dir)]
+                                parent_module.__package__ = parent_module_name
                                 sys.modules[parent_module_name] = parent_module
                                 parent_spec.loader.exec_module(parent_module)
                                 if "backend" in sys.modules:
                                     setattr(sys.modules["backend"], module_name, parent_module)
                             except Exception:
                                 pass  # Ignora erros ao criar módulo pai
+                    else:
+                        # Se o módulo já existe, garante que tem __path__ configurado
+                        if parent_module_name in sys.modules:
+                            parent_module = sys.modules[parent_module_name]
+                            if not hasattr(parent_module, '__path__'):
+                                parent_module.__path__ = [str(module_dir)]
                     
                     spec = importlib.util.spec_from_file_location(
                         name,
@@ -148,6 +166,9 @@ if "backend" not in sys.modules:
             if full_module_name not in sys.modules:
                 # Cria um módulo vazio primeiro
                 empty_module = type(sys)(full_module_name)
+                # CRÍTICO: Define __path__ para que seja reconhecido como pacote
+                empty_module.__path__ = [str(module_dir)]
+                empty_module.__package__ = full_module_name
                 sys.modules[full_module_name] = empty_module
                 setattr(backend_module, module_name, empty_module)
     
@@ -179,6 +200,9 @@ if "backend" not in sys.modules:
                             )
                         # Substitui o módulo vazio pelo módulo real
                         module = importlib.util.module_from_spec(spec)
+                        # CRÍTICO: Define __path__ para que seja reconhecido como pacote
+                        module.__path__ = [str(module_dir)]
+                        module.__package__ = full_module_name
                         sys.modules[full_module_name] = module
                         spec.loader.exec_module(module)
                         setattr(backend_module, module_name, module)
