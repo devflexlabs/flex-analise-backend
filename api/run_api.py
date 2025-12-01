@@ -117,4 +117,6 @@ print(f"✓ Importando: {app_import}")
 # Importa e executa a API
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app_import, host="0.0.0.0", port=8000, reload=True)
+    # Desabilita reload para evitar problemas com imports em processos filhos
+    # Use --reload na linha de comando se precisar de hot reload
+    uvicorn.run(app_import, host="0.0.0.0", port=8000, reload=False)
