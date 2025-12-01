@@ -61,6 +61,7 @@ CAMpos E VARIAÇÕES COMUNS:
 - Datas: "Vencimento da 1ª parcela", "Data do 1° Vencimento", "Primeira parcela", formato pode ser DD/MM/YYYY ou DD-MM-YYYY
 - Taxa juros: "Taxa de juros da operação", "Taxa de juros", "Juros Remuneratórios" - NÃO confundir com CET (Custo Efetivo Total). Priorize sempre a "Taxa de juros da operação". Pode estar como "% a.m." (ao mês) ou "% a.a." (ao ano)
 - Número contrato: "Nº", "Número", "Proposta", "Contrato nº", "Cédula de Crédito Bancário Nº", "Aditivo de Renegociação nº"
+- Banco/Instituição Financeira: Procure por logo, nome da instituição, "Instituição Financeira", "Credor", "Banco", "Financeira", "AYMORÉ", "Santander", "Itaú", "Bradesco", etc. Pode estar no cabeçalho, rodapé ou qualquer seção
 
 Extraia as seguintes informações quando disponíveis:
 1. Nome completo do cliente/devedor/emitente (procure em várias seções, incluindo assinatura) - OBRIGATÓRIO
@@ -73,12 +74,27 @@ Extraia as seguintes informações quando disponíveis:
 8. Número do contrato/proposta/aditivo
 9. CPF ou CNPJ do cliente (não da empresa/banco - procure na seção do cliente)
 10. Tipo de contrato (financiamento, empréstimo, aditivo de renegociação, etc.)
-11. Informações do veículo (se aplicável - apenas para contratos de financiamento de veículos):
+11. Nome do banco ou instituição financeira credora (OBRIGATÓRIO extrair quando disponível):
+    - CRÍTICO: Mesmo que o nome não esteja escrito, identifique pelo logo, CNPJ, ou outros indicadores
+    - Procure por: logo do banco (mesmo que só apareça a logo), nome da instituição financeira, CNPJ da instituição, "Instituição Financeira", "Credor", "Banco", "Financeira"
+    - Exemplos conhecidos:
+      * Santander: logo vermelho, "Santander", "AYMORÉ CRÉDITO", CNPJ 07.707.650/0001-10
+      * Banco do Brasil: logo azul, "Banco do Brasil", "BB"
+      * Itaú: logo laranja, "Itaú", "Itaú Unibanco"
+      * Bradesco: logo azul/verde, "Bradesco"
+      * Caixa: "Caixa Econômica Federal", "CEF"
+      * Outros: procure por qualquer menção a instituição financeira, CNPJ, ou logo
+    - Pode estar no cabeçalho, rodapé, ou em qualquer seção do documento
+    - Se houver logo (mesmo sem texto), identifique o banco pelo logo e mencione no campo banco_credor
+    - Se encontrar CNPJ, pode identificar o banco pelo CNPJ conhecido
+    - Se não encontrar nenhum indicador, deixe como null
+12. Informações do veículo (se aplicável - apenas para contratos de financiamento de veículos):
     - Marca do veículo (ex: NISSAN, TOYOTA, FORD, etc.)
     - Modelo completo do veículo (ex: V-DRIVE DRIVE 1.0 12V A4B, COROLLA XEI 2.0 FLEX, etc.)
     - Ano/Modelo do veículo (ex: 2021, 2012, etc.)
     - Cor do veículo (ex: branca, preta, prata, etc.)
     - Placa do veículo (se mencionada no contrato)
+    - RENAVAM do veículo (se mencionado no contrato - número de registro do veículo)
 12. Observações relevantes: escreva um texto completo e bem formatado. OBRIGATORIAMENTE inclua DOIS PARÁGRAFOS:
 
     PARÁGRAFO 1 - Informações do contrato:
@@ -183,6 +199,12 @@ IMPORTANTE:
 - Campos numéricos (quantidade_parcelas, valor_divida, valor_parcela, taxa_juros) podem ser null se não estiverem disponíveis no contrato.
 - Use null (não 0) quando a informação não estiver presente no documento.
 - O campo nome_cliente é OBRIGATÓRIO e sempre deve ter um valor.
+- CRÍTICO - BANCO/INSTITUIÇÃO FINANCEIRA: 
+  * Se houver logo do banco (mesmo sem texto), identifique pelo logo (ex: logo vermelho = Santander, logo azul = Banco do Brasil, etc.)
+  * Procure por CNPJ da instituição financeira e identifique o banco pelo CNPJ
+  * Procure por qualquer menção a "Instituição Financeira", "Credor", "Banco", "Financeira"
+  * Exemplos: "Santander", "AYMORÉ CRÉDITO", "Banco do Brasil", "Itaú", "Bradesco", "Caixa Econômica Federal"
+  * Se identificar o banco, preencha o campo banco_credor com o nome completo
 
 Contrato a analisar:
 {contract_text}""")
@@ -315,6 +337,145 @@ Contrato a analisar:
         
         return f"{inicio}\n\n[... texto do meio removido para reduzir tamanho ...]\n\n{fim}"
     
+    def _detectar_banco_por_cnpj(self, text: str) -> Optional[str]:
+        """
+        Detecta banco por CNPJ conhecidos no texto.
+        
+        Args:
+            text: Texto do contrato
+            
+        Returns:
+            Nome do banco se encontrado, None caso contrário
+        """
+        # CNPJs conhecidos de bancos principais e financeiras
+        bancos_cnpj = {
+            "07.707.650/0001-10": "Santander",  # Aymoré Crédito (Santander)
+            "00.000.000/0001-91": "Banco do Brasil",
+            "60.701.190/0001-04": "Itaú Unibanco",
+            "60.746.948/0001-12": "Bradesco",
+            "00.360.305/0001-04": "Caixa Econômica Federal",
+            "33.014.126/0001-96": "Banco Inter",
+            "59.025.094/0001-70": "Nubank",
+            "62.173.620/0001-80": "Banco Original",
+            "17.167.412/0001-13": "Banco Pan",
+            "04.452.473/0001-80": "Banco Safra",
+            "92.702.067/0001-96": "Banco Votorantim",
+            "33.000.118/0001-41": "Banco BTG Pactual",
+            "17.222.333/0001-91": "Banco C6",
+            "28.517.628/0001-88": "Banco Next",
+            "61.186.680/0001-74": "Banco Daycoval",
+            "07.206.816/0001-30": "Banco Rendimento",
+            "04.862.600/0001-10": "Banco Fibra",
+            "11.222.333/0001-81": "Banco ABC Brasil",
+            "05.114.027/0001-93": "Banco Mercantil",
+            "17.352.248/0001-02": "Banco Pine",
+            "04.452.473/0001-80": "Banco Safra",
+            "92.702.067/0001-96": "Banco Votorantim",
+            "33.000.118/0001-41": "Banco BTG Pactual",
+        }
+        
+        # Procura CNPJs no texto (formato XX.XXX.XXX/XXXX-XX)
+        import re
+        cnpj_pattern = r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}'
+        cnpjs_encontrados = re.findall(cnpj_pattern, text)
+        
+        for cnpj in cnpjs_encontrados:
+            if cnpj in bancos_cnpj:
+                return bancos_cnpj[cnpj]
+        
+        # Também procura por nomes de bancos conhecidos no texto (mais completo)
+        bancos_nomes = {
+            # Santander
+            "santander": "Santander",
+            "aymoré": "Santander",
+            "aymore": "Santander",
+            "aymoré crédito": "Santander",
+            "aymore credito": "Santander",
+            # Banco do Brasil
+            "banco do brasil": "Banco do Brasil",
+            "bb ": "Banco do Brasil",
+            " banco brasil": "Banco do Brasil",
+            # Itaú
+            "itau": "Itaú",
+            "itaú": "Itaú",
+            "itau unibanco": "Itaú Unibanco",
+            "itaú unibanco": "Itaú Unibanco",
+            # Bradesco
+            "bradesco": "Bradesco",
+            # Caixa
+            "caixa": "Caixa Econômica Federal",
+            "caixa econômica": "Caixa Econômica Federal",
+            "caixa economica": "Caixa Econômica Federal",
+            "cef": "Caixa Econômica Federal",
+            # Outros bancos
+            "banco inter": "Banco Inter",
+            "inter": "Banco Inter",
+            "nubank": "Nubank",
+            "banco original": "Banco Original",
+            "banco pan": "Banco Pan",
+            "pan ": "Banco Pan",
+            "banco safra": "Banco Safra",
+            "safra": "Banco Safra",
+            "banco votorantim": "Banco Votorantim",
+            "votorantim": "Banco Votorantim",
+            "btg pactual": "Banco BTG Pactual",
+            "btg": "Banco BTG Pactual",
+            "banco c6": "Banco C6",
+            "c6 bank": "Banco C6",
+            "banco next": "Banco Next",
+            "next": "Banco Next",
+            "banco daycoval": "Banco Daycoval",
+            "daycoval": "Banco Daycoval",
+            "banco rendimento": "Banco Rendimento",
+            "rendimento": "Banco Rendimento",
+            "banco fibra": "Banco Fibra",
+            "fibra": "Banco Fibra",
+            "banco abc": "Banco ABC Brasil",
+            "banco mercantil": "Banco Mercantil",
+            "mercantil": "Banco Mercantil",
+            "banco pine": "Banco Pine",
+            "pine": "Banco Pine",
+            # Financeiras e outras instituições
+            "creditas": "Creditas",
+            "geru": "Geru",
+            "simplic": "Simplic",
+            "banco digio": "Digio",
+            "digio": "Digio",
+            "banco neon": "Neon",
+            "neon": "Neon",
+            "banco picpay": "PicPay",
+            "picpay": "PicPay",
+            "banco will": "Will Bank",
+            "will bank": "Will Bank",
+            "banco pagbank": "PagBank",
+            "pagbank": "PagBank",
+        }
+        
+        text_lower = text.lower()
+        # Procura por nomes completos primeiro (mais específico)
+        for nome_banco, nome_completo in sorted(bancos_nomes.items(), key=lambda x: len(x[0]), reverse=True):
+            if nome_banco in text_lower:
+                return nome_completo
+        
+        # Procura por padrões comuns de menção a instituições financeiras
+        padroes_instituicao = [
+            (r'institui[çc][ãa]o\s+financeira[:\s]+([A-Z][A-Z\s]+)', lambda m: m.group(1).strip()),
+            (r'credor[:\s]+([A-Z][A-Z\s]+)', lambda m: m.group(1).strip()),
+            (r'banco[:\s]+([A-Z][A-Z\s]+)', lambda m: m.group(1).strip()),
+        ]
+        
+        for padrao, extrair in padroes_instituicao:
+            matches = re.finditer(padrao, text, re.IGNORECASE)
+            for match in matches:
+                nome_encontrado = extrair(match)
+                # Verifica se o nome encontrado contém algum banco conhecido
+                nome_lower = nome_encontrado.lower()
+                for nome_banco, nome_completo in bancos_nomes.items():
+                    if nome_banco in nome_lower or nome_lower in nome_banco:
+                        return nome_completo
+        
+        return None
+    
     def _truncar_texto_inteligente(self, text: str, max_chars: int = 3000) -> str:
         """
         Trunca o texto mantendo início e fim (onde geralmente estão as informações importantes).
@@ -355,6 +516,19 @@ Contrato a analisar:
                 "format_instructions": self.output_parser.get_format_instructions()
             })
             
+            # Tenta detectar banco por CNPJ se não foi identificado pela IA
+            if not result.banco_credor or result.banco_credor.strip() == "":
+                banco_detectado = self._detectar_banco_por_cnpj(text)
+                if banco_detectado:
+                    result.banco_credor = banco_detectado
+                    print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+            
+            # Log de debug
+            if result.banco_credor:
+                print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+            else:
+                print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+            
             # Não altera observações - o JSON já vem correto da IA
             # A função _limpar_observacoes só deve ser chamada manualmente se necessário
             
@@ -372,6 +546,20 @@ Contrato a analisar:
                         "contract_text": processed_text,
                         "format_instructions": self.output_parser.get_format_instructions()
                     })
+                    
+                    # Tenta detectar banco por CNPJ se não foi identificado pela IA
+                    if not result.banco_credor or result.banco_credor.strip() == "":
+                        banco_detectado = self._detectar_banco_por_cnpj(text)
+                        if banco_detectado:
+                            result.banco_credor = banco_detectado
+                            print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+                    
+                    # Log de debug
+                    if result.banco_credor:
+                        print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+                    else:
+                        print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                    
                     return result
                 except Exception as e2:
                     # Se ainda falhar, tenta com texto ainda menor
@@ -381,6 +569,20 @@ Contrato a analisar:
                             "contract_text": processed_text,
                             "format_instructions": self.output_parser.get_format_instructions()
                         })
+                        
+                        # Tenta detectar banco por CNPJ se não foi identificado pela IA
+                        if not result.banco_credor or result.banco_credor.strip() == "":
+                            banco_detectado = self._detectar_banco_por_cnpj(text)
+                            if banco_detectado:
+                                result.banco_credor = banco_detectado
+                                print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+                        
+                        # Log de debug
+                        if result.banco_credor:
+                            print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+                        else:
+                            print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                        
                         return result
                     except Exception as e3:
                         raise Exception(f"Erro ao extrair informações do contrato (JSON incompleto ou inválido): {str(e3)}")
@@ -400,6 +602,20 @@ Contrato a analisar:
                             "contract_text": processed_text_reduzido,
                             "format_instructions": self.output_parser.get_format_instructions()
                         })
+                        
+                        # Tenta detectar banco por CNPJ se não foi identificado pela IA
+                        if not result.banco_credor or result.banco_credor.strip() == "":
+                            banco_detectado = self._detectar_banco_por_cnpj(text)
+                            if banco_detectado:
+                                result.banco_credor = banco_detectado
+                                print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+                        
+                        # Log de debug
+                        if result.banco_credor:
+                            print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+                        else:
+                            print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                        
                         return result
                     except Exception as e2:
                         error_msg2 = str(e2)
