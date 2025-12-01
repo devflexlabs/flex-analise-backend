@@ -170,7 +170,13 @@ if "backend" not in sys.modules:
                         full_module_name,
                         module_dir / "__init__.py"
                     )
-                    if spec and spec.loader:
+                    if spec:
+                        # Garante que o loader está configurado
+                        if not spec.loader:
+                            spec.loader = importlib.machinery.SourceFileLoader(
+                                full_module_name,
+                                str(module_dir / "__init__.py")
+                            )
                         # Substitui o módulo vazio pelo módulo real
                         module = importlib.util.module_from_spec(spec)
                         sys.modules[full_module_name] = module
