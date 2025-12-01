@@ -117,6 +117,18 @@ print(f"✓ Importando: {app_import}")
 # Importa e executa a API
 if __name__ == "__main__":
     import uvicorn
+    
+    # Importa o app diretamente para garantir que o setup_backend seja executado
+    # Isso evita problemas com imports em processos filhos do uvicorn
+    if is_cloned_repo or (not is_original_repo and (root_dir / "api" / "api_server.py").exists()):
+        # Para estrutura plana, importa diretamente
+        from api._setup_backend import *  # noqa: F401, F403
+        from api.api_server import app
+    else:
+        # Para estrutura com backend/
+        from backend.api._setup_backend import *  # noqa: F401, F403
+        from backend.api.api_server import app
+    
     # Desabilita reload para evitar problemas com imports em processos filhos
     # Use --reload na linha de comando se precisar de hot reload
-    uvicorn.run(app_import, host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
