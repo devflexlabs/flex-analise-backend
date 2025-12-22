@@ -36,9 +36,9 @@ class BackendFinder:
                 module_dir = self.root_path / module_name
                 if module_dir.exists() and (module_dir / "__init__.py").exists():
                     # Garante que todos os módulos dependentes existem primeiro
-                    # (extractors depende de processors e models)
+                    # (extractors depende de processors, models e calculators)
                     if module_name == "extractors":
-                        for dep_name in ["models", "processors"]:
+                        for dep_name in ["models", "processors", "calculators"]:
                             dep_module_name = f"backend.{dep_name}"
                             if dep_module_name not in sys.modules:
                                 dep_dir = self.root_path / dep_name
@@ -156,7 +156,7 @@ if "backend" not in sys.modules:
     
     # Primeiro, cria módulos vazios para todos os submódulos
     # Isso evita erros de importação circular quando um módulo tenta importar outro
-    modules_to_create = ["extractors", "processors", "models"]
+    modules_to_create = ["extractors", "processors", "models", "calculators"]
     
     # Passo 1: Cria todos os módulos vazios primeiro
     for module_name in modules_to_create:
@@ -173,8 +173,8 @@ if "backend" not in sys.modules:
                 setattr(backend_module, module_name, empty_module)
     
     # Passo 2: Agora importa os módulos de verdade (agora que todos existem no sys.modules)
-    # Importa na ordem: models, processors, extractors (para respeitar dependências)
-    import_order = ["models", "processors", "extractors"]
+    # Importa na ordem: models, processors, calculators, extractors (para respeitar dependências)
+    import_order = ["models", "processors", "calculators", "extractors"]
     for module_name in import_order:
         module_dir = root_dir / module_name
         if module_dir.exists() and (module_dir / "__init__.py").exists():
