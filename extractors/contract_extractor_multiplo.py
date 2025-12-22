@@ -1,5 +1,36 @@
 """
 Extrator de contratos com suporte a múltiplas IAs (OpenAI, Ollama, Groq, Gemini).
+
+NOTAS SOBRE RECÁLCULO COM BASE NO BACEN:
+=========================================
+Para implementar recálculo de contratos com base em dados do BACEN, será necessário:
+
+1. METODOLOGIA DE AMORTIZAÇÃO:
+   - Identificar qual tabela foi usada: Price (parcelas fixas) ou SAC (amortização constante)
+   - Price: PMT = PV * [i(1+i)^n] / [(1+i)^n - 1]
+   - SAC: Amortização = PV / n, Juros = Saldo * i, Parcela = Amortização + Juros
+   - O contrato geralmente indica a metodologia, mas pode não estar explícito
+
+2. ACESSO A SÉRIES TEMPORAIS DO BACEN:
+   - API do BACEN: https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados
+   - Taxa Selic: código 11 (ao dia) ou 432 (ao mês)
+   - CDI: código 12 (ao dia)
+   - IPCA: código 433 (ao mês)
+   - Para taxas históricas: usar data de contratação do contrato
+   - Exemplo: se contrato foi assinado em 15/03/2024, buscar taxa Selic de 15/03/2024
+
+3. TAXAS PÓS-FIXADAS:
+   - Se contrato for assinado hoje com taxa pós-fixada (ex: CDI + 2% a.a.):
+     * A taxa efetiva só será conhecida 30 dias após (quando o CDI do período for divulgado)
+     * Para análise imediata: usar CDI atual como estimativa
+     * Adicionar aviso: "Taxa pós-fixada - valor final só será conhecido após período de referência"
+   - Para contratos antigos: buscar taxa histórica do período de referência
+
+4. IMPLEMENTAÇÃO FUTURA:
+   - Criar módulo bacen_integration.py para buscar séries temporais
+   - Criar módulo financial_calculator.py para cálculos (Price, SAC, juros compostos)
+   - Validar cálculos do contrato vs. recálculo com taxas BACEN
+   - Identificar divergências que possam indicar irregularidades
 """
 import os
 from typing import Optional
@@ -8,6 +39,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from backend.processors.document_processor import DocumentProcessor
 from backend.models.models import ContratoInfo
+from backend.calculators.recalculo_bacen import RecalculoBacen
 
 from pathlib import Path
 import os
@@ -33,6 +65,7 @@ class ContractExtractorMultiplo:
         self.provider = provider.lower()
         self.document_processor = DocumentProcessor()
         self.output_parser = PydanticOutputParser(pydantic_object=ContratoInfo)
+        self.recalculador = RecalculoBacen()  # Inicializa recalculador BACEN
         
         # Se auto, detecta qual está disponível
         if self.provider == "auto":
@@ -41,10 +74,25 @@ class ContractExtractorMultiplo:
         # Inicializa o LLM baseado no provider
         self.llm = self._inicializar_llm(model_name)
         
-        # Template do prompt
+        # Template do prompt - CALIBRADO para máxima assertividade
+        # Este prompt foi refinado para:
+        # 1. Extração mais precisa de dados numéricos e datas
+        # 2. Análise crítica mais assertiva de irregularidades
+        # 3. Identificação mais confiável de bancos/instituições
+        # 4. Melhor tratamento de diferentes formatos de contrato
         self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", """Você é um especialista em análise de contratos financeiros brasileiros. 
-Sua tarefa é extrair informações estruturadas de contratos financeiros, independente do formato ou ordem das informações.
+            ("system", """Você é um especialista em análise de contratos financeiros brasileiros com conhecimento profundo em:
+- Legislação brasileira (CDC, normas BACEN/CMN)
+- Cálculos financeiros (tabela Price, SAC, juros compostos)
+- Identificação de práticas abusivas em contratos bancários
+- Análise crítica de taxas, encargos e cláusulas contratuais
+
+Sua tarefa é extrair informações estruturadas de contratos financeiros com MÁXIMA PRECISÃO, independente do formato ou ordem das informações.
+
+CRITÉRIOS DE QUALIDADE:
+- PRECISÃO NUMÉRICA: Todos os valores monetários, taxas e datas devem ser extraídos EXATAMENTE como aparecem
+- ANÁLISE CRÍTICA: Identifique TODAS as irregularidades e práticas abusivas possíveis
+- COMPLETUDE: Não deixe campos importantes vazios se a informação estiver disponível no documento
 
 IMPORTANTE: 
 - Os contratos podem ter formatos COMPLETAMENTE DIFERENTES (cada banco/financeira tem seu próprio layout)
@@ -52,6 +100,7 @@ IMPORTANTE:
 - As informações podem estar em qualquer ordem e com nomenclaturas diferentes
 - Procure por sinônimos e variações (ex: "emitente", "devedor", "cliente", "contratante")
 - Valores podem estar escritos de várias formas (R$ 50.000,00, R$ 50000.00, 50000 reais, etc.)
+- SEJA METICULOSO: Leia cada seção do documento, incluindo rodapés, cabeçalhos e anexos
 
 CAMpos E VARIAÇÕES COMUNS:
 - Nome do cliente: "Nome/Razão Social", "Cliente", "Emitente", "Devedor", "Contratante", "Solicitante"
@@ -59,7 +108,12 @@ CAMpos E VARIAÇÕES COMUNS:
 - Parcelas: "Quantidade de parcelas", "Número de parcelas", pode estar como "(II) Quantidade de parcelas", "053 parcelas", etc.
 - Valor parcela: "Valor das parcelas", "(I) Valor das parcelas", "Valor de cada parcela mensal", "Parcela de"
 - Datas: "Vencimento da 1ª parcela", "Data do 1° Vencimento", "Primeira parcela", formato pode ser DD/MM/YYYY ou DD-MM-YYYY
-- Taxa juros: "Taxa de juros da operação", "Taxa de juros", "Juros Remuneratórios" - NÃO confundir com CET (Custo Efetivo Total). Priorize sempre a "Taxa de juros da operação". Pode estar como "% a.m." (ao mês) ou "% a.a." (ao ano)
+- Taxa juros: "Taxa de juros da operação", "Taxa de juros", "Juros Remuneratórios", "Taxa de juros mensal", "Taxa de juros anual" 
+  * CRÍTICO: NÃO confundir com CET (Custo Efetivo Total). Priorize sempre a "Taxa de juros da operação"
+  * Pode estar como "% a.m." (ao mês), "% a.a." (ao ano), ou apenas "%" (assuma mensal se não especificado)
+  * Se encontrar taxa anual, converta para mensal usando: (1 + taxa_anual)^(1/12) - 1
+  * Se encontrar taxa mensal, mantenha como está
+  * Se encontrar apenas CET, deixe taxa_juros como null (CET não é taxa de juros)
 - Número contrato: "Nº", "Número", "Proposta", "Contrato nº", "Cédula de Crédito Bancário Nº", "Aditivo de Renegociação nº"
 - Banco/Instituição Financeira: Procure por logo, nome da instituição, "Instituição Financeira", "Credor", "Banco", "Financeira", "AYMORÉ", "Santander", "Itaú", "Bradesco", etc. Pode estar no cabeçalho, rodapé ou qualquer seção
 
@@ -108,15 +162,20 @@ Extraia as seguintes informações quando disponíveis:
     PARÁGRAFO 2 - ANÁLISE OBRIGATÓRIA DE IRREGULARIDADES E CLÁUSULAS ABUSIVAS (ESTE PARÁGRAFO É OBRIGATÓRIO):
     Você DEVE SEMPRE incluir este segundo parágrafo analisando explicitamente:
     
-    * Taxas de juros: 
-      - Taxas acima de 3% a.m. = ALTA (mencione explicitamente)
-      - Taxas acima de 5% a.m. = MUITO ALTA e possivelmente ABUSIVA (mencione explicitamente)
-      - Compare com padrão de mercado (2-4% a.m. é comum)
+    * Taxas de juros (ANÁLISE OBRIGATÓRIA):
+      - Taxas entre 2-3% a.m. = NORMAL (padrão de mercado)
+      - Taxas entre 3-4% a.m. = ALTA (mencione explicitamente e compare com mercado)
+      - Taxas entre 4-5% a.m. = MUITO ALTA (mencione explicitamente como potencialmente abusiva)
+      - Taxas acima de 5% a.m. = EXTREMAMENTE ALTA e ABUSIVA (mencione explicitamente como prática abusiva)
+      - Compare sempre com padrão de mercado: 2-4% a.m. é comum para financiamento de veículos, 1-3% para empréstimos consignados
+      - Se a taxa estiver acima do padrão, identifique como possível violação de normas BACEN sobre taxas abusivas
     
-    * CET (Custo Efetivo Total):
-      - Se o CET estiver muito acima da taxa de juros (diferença > 2%), identifique como encargos excessivos
-      - CET acima de 60% a.a. = ALTO (mencione explicitamente)
-      - CET acima de 80% a.a. = MUITO ALTO e possivelmente abusivo
+    * CET (Custo Efetivo Total) - ANÁLISE OBRIGATÓRIA:
+      - Se o CET estiver muito acima da taxa de juros (diferença > 2% a.m. ou > 30% a.a.), identifique como ENCARGOS EXCESSIVOS
+      - CET entre 40-60% a.a. = ALTO (mencione explicitamente)
+      - CET entre 60-80% a.a. = MUITO ALTO (mencione explicitamente como potencialmente abusivo)
+      - CET acima de 80% a.a. = EXTREMAMENTE ALTO e ABUSIVO (mencione explicitamente como prática abusiva)
+      - Se o CET não estiver claramente informado no contrato, identifique como FALTA DE TRANSPARÊNCIA (violação de normas BACEN)
     
     * Cláusulas abusivas segundo CDC (Código de Defesa do Consumidor):
       - Multas acima de 2% = ABUSIVA (identifique explicitamente)
@@ -125,10 +184,13 @@ Extraia as seguintes informações quando disponíveis:
       - Condições não transparentes
       - Encargos desproporcionais
     
-    * Irregularidades com normas do BACEN/CMN:
-      - Falta de transparência no CET ou nas condições
-      - Encargos não mencionados claramente
-      - Taxas ou tarifas desproporcionais
+    * Irregularidades com normas do BACEN/CMN (ANÁLISE OBRIGATÓRIA):
+      - Falta de transparência no CET ou nas condições (viola Circular BACEN 3.517/2017)
+      - Encargos não mencionados claramente (viola normas de transparência)
+      - Taxas ou tarifas desproporcionais (viola princípio da proporcionalidade)
+      - CET não informado ou informado de forma confusa (viola obrigação de transparência)
+      - Taxa de juros não claramente identificada (viola normas de transparência)
+      - Informações essenciais em letras miúdas ou de difícil leitura (viola transparência)
     
     * Outras irregularidades: identifique qualquer condição abusiva ou irregular
     
@@ -181,16 +243,27 @@ CRÍTICO - OBSERVAÇÕES DEVEM TER 2 PARÁGRAFOS OBRIGATÓRIOS (MÁXIMO 500 pala
 PARÁGRAFO 1 (máximo 200 palavras): Informações básicas do contrato (valor, parcelas, taxas, bem financiado ou objeto do contrato, etc.)
 
 PARÁGRAFO 2 (máximo 300 palavras): ANÁLISE OBRIGATÓRIA DE IRREGULARIDADES E CLÁUSULAS ABUSIVAS
-Você DEVE SEMPRE incluir este segundo parágrafo analisando:
-- Taxas de juros acima de 3% a.m. = ALTA (mencione explicitamente)
-- Taxas acima de 5% a.m. = MUITO ALTA e ABUSIVA (mencione explicitamente)
-- CET acima de 60% a.a. = ALTO (mencione explicitamente)
-- CET acima de 80% a.a. = MUITO ALTO e possivelmente abusivo
-- Multas acima de 2% = ABUSIVA segundo CDC (identifique explicitamente)
-- Juros moratórios acima de 1% ao mês = possivelmente ABUSIVO (identifique explicitamente)
-- Cláusulas que limitam direitos do consumidor
-- Condições não transparentes ou difíceis de entender
-- Qualquer cláusula que possa violar CDC ou normas BACEN/CMN
+Você DEVE SEMPRE incluir este segundo parágrafo analisando METICULOSAMENTE:
+
+ANÁLISE DE TAXAS (OBRIGATÓRIA):
+- Taxas entre 3-4% a.m. = ALTA (mencione explicitamente e compare com mercado)
+- Taxas entre 4-5% a.m. = MUITO ALTA (mencione explicitamente como potencialmente abusiva)
+- Taxas acima de 5% a.m. = EXTREMAMENTE ALTA e ABUSIVA (mencione explicitamente como prática abusiva)
+
+ANÁLISE DE CET (OBRIGATÓRIA):
+- CET entre 60-80% a.a. = MUITO ALTO (mencione explicitamente como potencialmente abusivo)
+- CET acima de 80% a.a. = EXTREMAMENTE ALTO e ABUSIVO (mencione explicitamente)
+- Diferença entre CET e taxa de juros > 30% a.a. = ENCARGOS EXCESSIVOS (identifique explicitamente)
+
+ANÁLISE DE ENCARGOS (OBRIGATÓRIA):
+- Multas acima de 2% = ABUSIVA segundo CDC Art. 52, §1º (identifique explicitamente)
+- Juros moratórios acima de 1% ao mês = ABUSIVO segundo jurisprudência (identifique explicitamente)
+- Soma de multa + juros moratórios > 2% ao mês = ABUSIVO (identifique explicitamente)
+
+ANÁLISE DE CLÁUSULAS (OBRIGATÓRIA):
+- Cláusulas que limitam direitos do consumidor (identifique quais)
+- Condições não transparentes ou difíceis de entender (identifique quais)
+- Qualquer cláusula que possa violar CDC ou normas BACEN/CMN (identifique especificamente)
 
 SEMPRE termine o segundo parágrafo com: "IRREGULARIDADES IDENTIFICADAS: [liste cada uma]" OU "NÃO FORAM IDENTIFICADAS IRREGULARIDADES EVIDENTES, porém [mencione taxas altas ou condições questionáveis se houver]"
 
@@ -212,10 +285,11 @@ Contrato a analisar:
     
     def _detectar_provider(self) -> str:
         """Detecta qual provider está disponível."""
-        # Prioridade: Gemini/Groq primeiro (mais baratos), depois Ollama, depois OpenAI
+        # Prioridade: Groq (com modelos Gemini) primeiro (gratuito e melhor para cálculos), 
+        # depois Ollama, depois OpenAI
         
-        # Prioridade: Groq primeiro (gratuito e rápido)
-        # Verifica Groq (gratuito, muito rápido)
+        # Prioridade: Groq primeiro (gratuito, rápido, e suporta Gemini para cálculos precisos)
+        # Verifica Groq (gratuito, muito rápido, suporta modelos Gemini)
         if os.getenv("GROQ_API_KEY"):
             return "groq"
         
@@ -234,7 +308,7 @@ Contrato a analisar:
         
         raise ValueError(
             "Nenhum provider de IA configurado. Configure pelo menos um:\n"
-            "- Groq (GRATUITO): GROQ_API_KEY no .env\n"
+            "- Groq (GRATUITO, suporta Gemini): GROQ_API_KEY no .env\n"
             "- Ollama (GRÁTIS, local): Instale em https://ollama.ai\n"
             "- OpenAI: OPENAI_API_KEY no .env"
         )
@@ -251,9 +325,16 @@ Contrato a analisar:
             api_key = os.getenv("GROQ_API_KEY")
             if not api_key:
                 raise ValueError("GROQ_API_KEY não encontrada no .env")
-            # Modelos disponíveis: usa o menor primeiro (consome menos tokens)
-            # llama-3.1-8b-instant é mais eficiente e consome menos tokens
-            modelos_disponiveis = model_name or ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+            # Modelos disponíveis no Groq:
+            # - Gemini: gemma2-9b-it, gemma-7b-it (melhor para cálculos e extração precisa)
+            # - Llama: llama-3.1-8b-instant, llama-3.3-70b-versatile (mais rápido)
+            # Prioriza Gemini para cálculos mais precisos, depois Llama para velocidade
+            modelos_disponiveis = model_name or [
+                "gemma2-9b-it",  # Gemini via Groq - melhor para cálculos
+                "gemma-7b-it",   # Gemini via Groq - alternativa
+                "llama-3.1-8b-instant",  # Llama - mais rápido
+                "llama-3.3-70b-versatile"  # Llama - mais preciso mas mais lento
+            ]
             if isinstance(modelos_disponiveis, str):
                 modelos_disponiveis = [modelos_disponiveis]
             
@@ -476,6 +557,55 @@ Contrato a analisar:
         
         return None
     
+    def _aplicar_recalculo_bacen(self, result: ContratoInfo) -> ContratoInfo:
+        """
+        Aplica recálculo com dados do BACEN ao resultado da extração.
+        
+        Args:
+            result: Resultado da extração do contrato
+            
+        Returns:
+            Resultado com recálculo aplicado (se possível)
+        """
+        # Só recalcula se houver dados suficientes
+        if not (result.valor_divida and result.quantidade_parcelas and 
+                result.taxa_juros and result.data_vencimento_primeira):
+            return result
+        
+        try:
+            print("🔄 Iniciando recálculo com dados do BACEN...")
+            recalculo = self.recalculador.recalcular_contrato(
+                valor_principal=result.valor_divida,
+                taxa_juros_contrato=result.taxa_juros,
+                numero_parcelas=result.quantidade_parcelas,
+                valor_parcela_contrato=result.valor_parcela,
+                data_contratacao=result.data_vencimento_primeira,
+                data_primeira_parcela=result.data_vencimento_primeira,
+                tipo_taxa="prefixada",  # Assume prefixada por padrão (pode ser detectado no futuro)
+                indexador="selic"
+            )
+            
+            if recalculo.get("sucesso"):
+                result.recalculo_bacen = recalculo
+                print("✅ Recálculo com BACEN concluído com sucesso")
+                
+                # Adiciona informações de recálculo nas observações se houver divergências
+                if recalculo.get("comparacao") and recalculo["comparacao"].get("diferenca_price"):
+                    diff = recalculo["comparacao"]["diferenca_price"]
+                    if diff > 1.0:  # Diferença maior que R$ 1,00
+                        aviso = f"\n\n⚠️ RECÁLCULO BACEN: Divergência detectada entre valor da parcela do contrato (R$ {result.valor_parcela:.2f}) e cálculo Price (R$ {recalculo['recalculo_price']['valor_parcela']:.2f}). Diferença: R$ {diff:.2f}."
+                        if result.observacoes:
+                            result.observacoes += aviso
+                        else:
+                            result.observacoes = aviso
+            else:
+                print(f"⚠️ Recálculo com BACEN não foi possível: {recalculo.get('erro')}")
+        except Exception as e:
+            print(f"⚠️ Erro ao recalcular com BACEN: {e}")
+            # Não falha a extração se o recálculo falhar
+        
+        return result
+    
     def _truncar_texto_inteligente(self, text: str, max_chars: int = 3000) -> str:
         """
         Trunca o texto mantendo início e fim (onde geralmente estão as informações importantes).
@@ -529,6 +659,9 @@ Contrato a analisar:
             else:
                 print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
             
+            # Aplica recálculo com BACEN
+            result = self._aplicar_recalculo_bacen(result)
+            
             # Não altera observações - o JSON já vem correto da IA
             # A função _limpar_observacoes só deve ser chamada manualmente se necessário
             
@@ -560,6 +693,9 @@ Contrato a analisar:
                     else:
                         print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
                     
+                    # Aplica recálculo com BACEN
+                    result = self._aplicar_recalculo_bacen(result)
+                    
                     return result
                 except Exception as e2:
                     # Se ainda falhar, tenta com texto ainda menor
@@ -582,6 +718,9 @@ Contrato a analisar:
                             print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
                         else:
                             print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                        
+                        # Aplica recálculo com BACEN
+                        result = self._aplicar_recalculo_bacen(result)
                         
                         return result
                     except Exception as e3:
@@ -615,6 +754,9 @@ Contrato a analisar:
                             print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
                         else:
                             print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                        
+                        # Aplica recálculo com BACEN
+                        result = self._aplicar_recalculo_bacen(result)
                         
                         return result
                     except Exception as e2:

@@ -28,6 +28,8 @@ class ContratoInfo(BaseModel):
     veiculo_placa: Optional[str] = Field(None, description="Placa do veículo (se mencionada)")
     veiculo_renavam: Optional[str] = Field(None, description="RENAVAM do veículo (se mencionado no contrato)")
     observacoes: Optional[str] = Field(None, description="Observações adicionais relevantes")
+    # Informações de recálculo com BACEN (opcional)
+    recalculo_bacen: Optional[dict] = Field(None, description="Resultado do recálculo usando dados do BACEN")
     
     class Config:
         json_schema_extra = {
