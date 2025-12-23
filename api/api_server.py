@@ -297,14 +297,21 @@ async def extract_contract(file: UploadFile = File(...)):
         
         # Salva automaticamente no banco de dados (só se não for duplicado)
         analise_salva = None
+        ja_existia = False
         try:
             repository = AnaliseRepositoryPrisma()
-            analise_salva = await repository.salvar_analise(
-                contrato_info=resultado,
-                arquivo_original=file.filename
-            )
-            if analise_salva:
-                print(f"✅ Análise {'salva' if analise_salva.id else 'já existia'} no banco de dados: ID {analise_salva.id}")
+            # Verifica se já existe antes de salvar
+            existing = await repository.verificar_duplicado(resultado)
+            if existing:
+                analise_salva = existing
+                ja_existia = True
+                print(f"ℹ️  Contrato já existe no banco (ID: {analise_salva.id}). Não salvando duplicado.")
+            else:
+                analise_salva = await repository.salvar_analise(
+                    contrato_info=resultado,
+                    arquivo_original=file.filename
+                )
+                print(f"✅ Análise salva no banco de dados: ID {analise_salva.id}")
         except Exception as db_error:
             # Loga erro mas não falha a requisição
             print(f"⚠️  Erro ao salvar análise no banco: {db_error}")
@@ -314,6 +321,7 @@ async def extract_contract(file: UploadFile = File(...)):
         # Converte para dict
         resultado_dict = resultado.model_dump()
         resultado_dict["analise_id"] = analise_salva.id if analise_salva else None
+        resultado_dict["ja_existia"] = ja_existia
         
         return JSONResponse(content=resultado_dict)
         
