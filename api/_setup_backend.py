@@ -203,10 +203,13 @@ if "backend" not in sys.modules:
                         # CRÍTICO: Define __path__ para que seja reconhecido como pacote
                         module.__path__ = [str(module_dir)]
                         module.__package__ = full_module_name
+                        # Define __file__ para que imports relativos funcionem
+                        module.__file__ = str(module_dir / "__init__.py")
                         sys.modules[full_module_name] = module
                         spec.loader.exec_module(module)
                         setattr(backend_module, module_name, module)
             except Exception as e:
-                # Se falhar, mantém o módulo vazio
+                # Se falhar, loga o erro mas continua
                 # Isso permite que o código continue mesmo se houver dependências opcionais faltando
+                print(f"⚠️  Aviso: Erro ao carregar módulo {full_module_name}: {e}")
                 pass
