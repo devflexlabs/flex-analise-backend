@@ -128,7 +128,8 @@ async def estatisticas_por_produto(
 async def mapa_divida(
     ano: int = Query(..., description="Ano do relatório (ex: 2024)"),
     mes: int = Query(..., description="Mês do relatório (1-12)"),
-    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)")
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
+    db: Session = Depends(get_db)
 ):
     """
     Gera relatório mensal tipo "mapa da dívida".
