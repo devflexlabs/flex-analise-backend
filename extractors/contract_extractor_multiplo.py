@@ -326,14 +326,14 @@ Contrato a analisar:
             if not api_key:
                 raise ValueError("GROQ_API_KEY não encontrada no .env")
             # Modelos disponíveis no Groq:
-            # - Gemini: gemma2-9b-it, gemma-7b-it (melhor para cálculos e extração precisa)
-            # - Llama: llama-3.1-8b-instant, llama-3.3-70b-versatile (mais rápido)
-            # Prioriza Gemini para cálculos mais precisos, depois Llama para velocidade
+            # - Llama: llama-3.1-8b-instant (rápido), llama-3.3-70b-versatile (preciso)
+            # - Mixtral: mixtral-8x7b-32768 (balanceado)
+            # NOTA: gemma2-9b-it e gemma-7b-it foram descontinuados
+            # Prioriza Llama 3.3 para precisão, depois Llama 3.1 para velocidade
             modelos_disponiveis = model_name or [
-                "gemma2-9b-it",  # Gemini via Groq - melhor para cálculos
-                "gemma-7b-it",   # Gemini via Groq - alternativa
-                "llama-3.1-8b-instant",  # Llama - mais rápido
-                "llama-3.3-70b-versatile"  # Llama - mais preciso mas mais lento
+                "llama-3.3-70b-versatile",  # Llama - mais preciso (recomendado)
+                "llama-3.1-8b-instant",     # Llama - mais rápido
+                "mixtral-8x7b-32768"       # Mixtral - balanceado
             ]
             if isinstance(modelos_disponiveis, str):
                 modelos_disponiveis = [modelos_disponiveis]
