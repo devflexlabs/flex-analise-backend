@@ -22,41 +22,41 @@ class AnaliseContrato(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Timestamp da análise
-    data_analise = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    data_analise = Column("dataAnalise", DateTime, default=datetime.utcnow, nullable=False, index=True)
     
     # Dados do cliente
-    nome_cliente = Column(String(255), nullable=False, index=True)
-    cpf_cnpj = Column(String(20), index=True)  # Indexado para busca rápida
+    nome_cliente = Column("nomeCliente", String(255), nullable=False, index=True)
+    cpf_cnpj = Column("cpfCnpj", String(20), index=True)  # Indexado para busca rápida
     
     # Dados do contrato
-    numero_contrato = Column(String(100), index=True)
-    tipo_contrato = Column(String(100), index=True)  # Financiamento, Empréstimo, etc.
-    banco_credor = Column(String(255), index=True)  # Indexado para relatórios por banco
+    numero_contrato = Column("numeroContrato", String(100), index=True)
+    tipo_contrato = Column("tipoContrato", String(100), index=True)  # Financiamento, Empréstimo, etc.
+    banco_credor = Column("bancoCredor", String(255), index=True)  # Indexado para relatórios por banco
     
     # Valores financeiros
-    valor_divida = Column(Float)
-    valor_parcela = Column(Float)
-    quantidade_parcelas = Column(Integer)
-    taxa_juros = Column(Float, index=True)  # Indexado para análises de juros
+    valor_divida = Column("valorDivida", Float)
+    valor_parcela = Column("valorParcela", Float)
+    quantidade_parcelas = Column("quantidadeParcelas", Integer)
+    taxa_juros = Column("taxaJuros", Float, index=True)  # Indexado para análises de juros
     
     # Datas
-    data_vencimento_primeira = Column(String(20))  # YYYY-MM-DD
-    data_vencimento_ultima = Column(String(20))
+    data_vencimento_primeira = Column("dataVencimentoPrimeira", String(20))  # YYYY-MM-DD
+    data_vencimento_ultima = Column("dataVencimentoUltima", String(20))
     
     # Informações do veículo (se aplicável)
-    veiculo_marca = Column(String(100), index=True)
-    veiculo_modelo = Column(String(255))
-    veiculo_ano = Column(String(10))
-    veiculo_cor = Column(String(50))
-    veiculo_placa = Column(String(10), index=True)
-    veiculo_renavam = Column(String(20))
-    tem_veiculo = Column(Boolean, default=False, index=True)  # Flag para filtros rápidos
+    veiculo_marca = Column("veiculoMarca", String(100), index=True)
+    veiculo_modelo = Column("veiculoModelo", String(255))
+    veiculo_ano = Column("veiculoAno", String(10))
+    veiculo_cor = Column("veiculoCor", String(50))
+    veiculo_placa = Column("veiculoPlaca", String(10), index=True)
+    veiculo_renavam = Column("veiculoRenavam", String(20))
+    tem_veiculo = Column("temVeiculo", Boolean, default=False, index=True)  # Flag para filtros rápidos
     
     # Observações e análise
     observacoes = Column(Text)  # Texto completo das observações
     
     # Recálculo BACEN (JSON serializado)
-    recalculo_bacen = Column(Text)  # JSON string do recálculo
+    recalculo_bacen = Column("recalculoBacen", Text)  # JSON string do recálculo
     
     # Campos adicionais para relatórios e mineração de dados
     # Localização (pode ser extraída do CPF ou informada manualmente)
@@ -64,22 +64,22 @@ class AnaliseContrato(Base):
     cidade = Column(String(100), index=True)
     
     # Idade do cliente (pode ser calculada a partir de data de nascimento se disponível)
-    idade_cliente = Column(Integer, index=True)
+    idade_cliente = Column("idadeCliente", Integer, index=True)
     
     # Flags para análise de irregularidades (extraídas das observações)
-    tem_taxa_abusiva = Column(Boolean, default=False, index=True)
-    tem_cet_alto = Column(Boolean, default=False, index=True)
-    tem_clausulas_abusivas = Column(Boolean, default=False, index=True)
+    tem_taxa_abusiva = Column("temTaxaAbusiva", Boolean, default=False, index=True)
+    tem_cet_alto = Column("temCetAlto", Boolean, default=False, index=True)
+    tem_clausulas_abusivas = Column("temClausulasAbusivas", Boolean, default=False, index=True)
     
     # Metadados
-    arquivo_original = Column(String(500))  # Nome do arquivo original (opcional)
+    arquivo_original = Column("arquivoOriginal", String(500))  # Nome do arquivo original (opcional)
     
     # Índices compostos para queries comuns
     __table_args__ = (
-        Index('idx_banco_tipo', 'banco_credor', 'tipo_contrato'),
-        Index('idx_data_banco', 'data_analise', 'banco_credor'),
-        Index('idx_estado_banco', 'estado', 'banco_credor'),
-        Index('idx_tem_veiculo_banco', 'tem_veiculo', 'banco_credor'),
+        Index('idx_banco_tipo', 'bancoCredor', 'tipoContrato'),
+        Index('idx_data_banco', 'dataAnalise', 'bancoCredor'),
+        Index('idx_estado_banco', 'estado', 'bancoCredor'),
+        Index('idx_tem_veiculo_banco', 'temVeiculo', 'bancoCredor'),
     )
     
     def to_dict(self):
