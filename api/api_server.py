@@ -5,9 +5,10 @@ Pode ser consumida pela aplicação Next.js.
 # IMPORTANTE: Importa o setup do backend ANTES de qualquer import de backend.*
 from ._setup_backend import *  # noqa: F401, F403
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 import os
 import tempfile
 from pathlib import Path
@@ -23,9 +24,9 @@ load_dotenv(dotenv_path=env_path, override=True)
 from backend.extractors.contract_extractor_multiplo import ContractExtractorMultiplo
 from backend.processors.document_processor import DocumentProcessor
 
-# Importa módulo de banco de dados usando Prisma
-from backend.database.prisma_client import init_db, disconnect_db, prisma
-from backend.database.repository_prisma import AnaliseRepositoryPrisma
+# Importa módulo de banco de dados usando SQLAlchemy
+from backend.database.database import init_db, get_db, get_session
+from backend.database.repository import AnaliseRepository
 
 app = FastAPI(title="Extrator de Contratos Financeiros API")
 
@@ -34,19 +35,10 @@ app = FastAPI(title="Extrator de Contratos Financeiros API")
 async def startup_event():
     """Inicializa o banco de dados na inicialização da API."""
     try:
-        await init_db()
+        init_db()
         print("✅ Banco de dados inicializado com sucesso")
     except Exception as e:
         print(f"⚠️  Erro ao inicializar banco de dados: {e}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Desconecta do banco de dados ao encerrar."""
-    try:
-        await disconnect_db()
-        print("✅ Banco de dados desconectado")
-    except Exception as e:
-        print(f"⚠️  Erro ao desconectar banco de dados: {e}")
 
 # Configura CORS para permitir requisições do Next.js
 app.add_middleware(
@@ -94,7 +86,8 @@ async def health():
 
 @app.get("/api/relatorios/estatisticas-banco")
 async def estatisticas_por_banco(
-    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)")
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
+    db: Session = Depends(get_db)
 ):
     """
     Retorna estatísticas agregadas por banco.
@@ -107,8 +100,8 @@ async def estatisticas_por_banco(
     - Percentual de contratos com taxa abusiva
     """
     try:
-        repository = AnaliseRepositoryPrisma()
-        resultado = await repository.estatisticas_por_banco(estado=estado)
+        repository = AnaliseRepository(db)
+        resultado = repository.estatisticas_por_banco(estado=estado)
         # Garante que sempre retorna uma lista, mesmo se vazia
         return resultado if resultado else []
     except Exception as e:
@@ -121,13 +114,14 @@ async def estatisticas_por_banco(
 
 @app.get("/api/relatorios/estatisticas-produto")
 async def estatisticas_por_produto(
-    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)")
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
+    db: Session = Depends(get_db)
 ):
     """
     Retorna estatísticas agregadas por tipo de produto (empréstimo, financiamento, etc.).
     """
-    repository = AnaliseRepositoryPrisma()
-    return await repository.estatisticas_por_produto(estado=estado)
+    repository = AnaliseRepository(db)
+    return repository.estatisticas_por_produto(estado=estado)
 
 
 @app.get("/api/relatorios/mapa-divida")
@@ -149,8 +143,8 @@ async def mapa_divida(
     if mes < 1 or mes > 12:
         raise HTTPException(status_code=400, detail="Mês deve estar entre 1 e 12")
     
-    repository = AnaliseRepositoryPrisma()
-    return await repository.mapa_divida_mensal(ano=ano, mes=mes, estado=estado)
+    repository = AnaliseRepository(db)
+    return repository.mapa_divida_mensal(ano=ano, mes=mes, estado=estado)
 
 
 @app.get("/api/relatorios/analises")
@@ -159,98 +153,38 @@ async def listar_analises(
     offset: int = Query(0, ge=0, description="Offset para paginação"),
     banco: Optional[str] = Query(None, description="Filtrar por banco"),
     tipo_contrato: Optional[str] = Query(None, description="Filtrar por tipo de contrato"),
-    estado: Optional[str] = Query(None, description="Filtrar por estado")
+    estado: Optional[str] = Query(None, description="Filtrar por estado"),
+    db: Session = Depends(get_db)
 ):
     """
     Lista análises de contratos com filtros opcionais.
     """
-    repository = AnaliseRepositoryPrisma()
-    analises = await repository.listar_analises(
+    repository = AnaliseRepository(db)
+    analises = repository.listar_analises(
         limite=limite,
         offset=offset,
         banco=banco,
         tipo_contrato=tipo_contrato,
         estado=estado
     )
-    # Converte Prisma models para dict
-    return [
-        {
-            "id": a.id,
-            "data_analise": a.dataAnalise.isoformat() if a.dataAnalise else None,
-            "nome_cliente": a.nomeCliente,
-            "cpf_cnpj": a.cpfCnpj,
-            "numero_contrato": a.numeroContrato,
-            "tipo_contrato": a.tipoContrato,
-            "banco_credor": a.bancoCredor,
-            "valor_divida": a.valorDivida,
-            "valor_parcela": a.valorParcela,
-            "quantidade_parcelas": a.quantidadeParcelas,
-            "taxa_juros": a.taxaJuros,
-            "data_vencimento_primeira": a.dataVencimentoPrimeira,
-            "data_vencimento_ultima": a.dataVencimentoUltima,
-            "veiculo_marca": a.veiculoMarca,
-            "veiculo_modelo": a.veiculoModelo,
-            "veiculo_ano": a.veiculoAno,
-            "veiculo_cor": a.veiculoCor,
-            "veiculo_placa": a.veiculoPlaca,
-            "veiculo_renavam": a.veiculoRenavam,
-            "tem_veiculo": a.temVeiculo,
-            "observacoes": a.observacoes,
-            "recalculo_bacen": a.recalculoBacen,
-            "estado": a.estado,
-            "cidade": a.cidade,
-            "idade_cliente": a.idadeCliente,
-            "tem_taxa_abusiva": a.temTaxaAbusiva,
-            "tem_cet_alto": a.temCetAlto,
-            "tem_clausulas_abusivas": a.temClausulasAbusivas,
-            "arquivo_original": a.arquivoOriginal,
-        }
-        for a in analises
-    ]
+    return [analise.to_dict() for analise in analises]
 
 
 @app.get("/api/relatorios/analise/{analise_id}")
-async def obter_analise(analise_id: int):
+async def obter_analise(
+    analise_id: int,
+    db: Session = Depends(get_db)
+):
     """
     Obtém uma análise específica por ID.
     """
-    repository = AnaliseRepositoryPrisma()
-    analise = await repository.obter_por_id(analise_id)
+    repository = AnaliseRepository(db)
+    analise = repository.obter_por_id(analise_id)
     
     if not analise:
         raise HTTPException(status_code=404, detail="Análise não encontrada")
     
-    return {
-        "id": analise.id,
-        "data_analise": analise.dataAnalise.isoformat() if analise.dataAnalise else None,
-        "nome_cliente": analise.nomeCliente,
-        "cpf_cnpj": analise.cpfCnpj,
-        "numero_contrato": analise.numeroContrato,
-        "tipo_contrato": analise.tipoContrato,
-        "banco_credor": analise.bancoCredor,
-        "valor_divida": analise.valorDivida,
-        "valor_parcela": analise.valorParcela,
-        "quantidade_parcelas": analise.quantidadeParcelas,
-        "taxa_juros": analise.taxaJuros,
-        "data_vencimento_primeira": analise.dataVencimentoPrimeira,
-        "data_vencimento_ultima": analise.dataVencimentoUltima,
-        "veiculo_marca": analise.veiculoMarca,
-        "veiculo_modelo": analise.veiculoModelo,
-        "veiculo_ano": analise.veiculoAno,
-        "veiculo_cor": analise.veiculoCor,
-        "veiculo_placa": analise.veiculoPlaca,
-        "veiculo_renavam": analise.veiculoRenavam,
-        "tem_veiculo": analise.temVeiculo,
-        "observacoes": analise.observacoes,
-        "recalculo_bacen": analise.recalculoBacen,
-        "estado": analise.estado,
-        "cidade": analise.cidade,
-        "idade_cliente": analise.idadeCliente,
-        "tem_taxa_abusiva": analise.temTaxaAbusiva,
-        "tem_cet_alto": analise.temCetAlto,
-        "tem_clausulas_abusivas": analise.temClausulasAbusivas,
-        "arquivo_original": analise.arquivoOriginal,
-    }
+    return analise.to_dict()
 
 @app.post("/api/extract")
 async def extract_contract(file: UploadFile = File(...)):
@@ -299,24 +233,31 @@ async def extract_contract(file: UploadFile = File(...)):
         analise_salva = None
         ja_existia = False
         try:
-            repository = AnaliseRepositoryPrisma()
+            db = get_session()
+            repository = AnaliseRepository(db)
             # Verifica se já existe antes de salvar
-            existing = await repository.verificar_duplicado(resultado)
+            existing = repository.verificar_duplicado(resultado)
             if existing:
                 analise_salva = existing
                 ja_existia = True
                 print(f"ℹ️  Contrato já existe no banco (ID: {analise_salva.id}). Não salvando duplicado.")
             else:
-                analise_salva = await repository.salvar_analise(
+                analise_salva = repository.salvar_analise(
                     contrato_info=resultado,
                     arquivo_original=file.filename
                 )
-                print(f"✅ Análise salva no banco de dados: ID {analise_salva.id}")
+                if analise_salva:
+                    db.commit()
+                    print(f"✅ Análise salva no banco de dados: ID {analise_salva.id}")
+            db.close()
         except Exception as db_error:
             # Loga erro mas não falha a requisição
             print(f"⚠️  Erro ao salvar análise no banco: {db_error}")
             import traceback
             traceback.print_exc()
+            if 'db' in locals():
+                db.rollback()
+                db.close()
         
         # Converte para dict
         resultado_dict = resultado.model_dump()

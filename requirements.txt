@@ -19,8 +19,8 @@ uvicorn>=0.24.0
 python-multipart>=0.0.6
 requests>=2.31.0
 python-dateutil>=2.8.2
-psycopg2-binary>=2.9.0  # Necessário para PostgreSQL com Prisma
-# Prisma é instalado via npm: npm install prisma
+psycopg2-binary>=2.9.0  # Necessário para PostgreSQL
+sqlalchemy>=2.0.0  # ORM para Python
 # Opcionais para serviços em nuvem:
 # google-cloud-vision>=3.0.0  # Para Google Vision API
 # boto3>=1.28.0  # Para AWS Textract

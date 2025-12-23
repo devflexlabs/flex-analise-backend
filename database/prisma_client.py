@@ -2,10 +2,38 @@
 Cliente Prisma para acesso ao banco de dados.
 """
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
-from prisma import Prisma
-from prisma.models import AnaliseContrato
+
+# Adiciona o caminho do Prisma Client gerado ao sys.path
+_prisma_client_path = Path(__file__).parent.parent / "node_modules" / ".prisma" / "client"
+if _prisma_client_path.exists() and str(_prisma_client_path.parent) not in sys.path:
+    sys.path.insert(0, str(_prisma_client_path.parent))
+
+# Importa Prisma do cliente gerado
+try:
+    # Tenta importar do cliente gerado pelo Prisma
+    from prisma import Prisma
+    from prisma.models import AnaliseContrato
+except ImportError:
+    # Se falhar, tenta importar diretamente do caminho gerado
+    try:
+        import importlib.util
+        prisma_module_path = _prisma_client_path / "index.py"
+        if prisma_module_path.exists():
+            spec = importlib.util.spec_from_file_location("prisma", prisma_module_path)
+            if spec and spec.loader:
+                prisma_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(prisma_module)
+                Prisma = prisma_module.Prisma
+                AnaliseContrato = prisma_module.models.AnaliseContrato
+        else:
+            raise ImportError("Prisma Client não encontrado. Execute 'npx prisma generate'")
+    except Exception as e:
+        raise ImportError(
+            f"Prisma Client não encontrado. Execute 'npx prisma generate' para gerar o cliente. Erro: {e}"
+        )
 
 # Carrega .env
 env_path = Path(__file__).parent.parent / "config" / ".env"

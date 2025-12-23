@@ -17,17 +17,58 @@ class AnaliseRepository:
     def __init__(self, db: Session):
         self.db = db
     
-    def salvar_analise(self, contrato_info: ContratoInfo, arquivo_original: Optional[str] = None) -> AnaliseContrato:
+    def verificar_duplicado(self, contrato_info: ContratoInfo) -> Optional[AnaliseContrato]:
+        """
+        Verifica se já existe um contrato duplicado no banco.
+        
+        Args:
+            contrato_info: Objeto ContratoInfo com os dados extraídos
+            
+        Returns:
+            AnaliseContrato existente ou None
+        """
+        # Primeiro tenta por número de contrato + banco
+        if contrato_info.numero_contrato and contrato_info.banco_credor:
+            existing = self.db.query(AnaliseContrato).filter(
+                and_(
+                    AnaliseContrato.numero_contrato == contrato_info.numero_contrato,
+                    AnaliseContrato.banco_credor == contrato_info.banco_credor
+                )
+            ).first()
+            if existing:
+                return existing
+        
+        # Se não encontrou, tenta por CPF/CNPJ + banco (para contratos sem número)
+        if contrato_info.cpf_cnpj and contrato_info.banco_credor:
+            existing = self.db.query(AnaliseContrato).filter(
+                and_(
+                    AnaliseContrato.cpf_cnpj == contrato_info.cpf_cnpj,
+                    AnaliseContrato.banco_credor == contrato_info.banco_credor,
+                    AnaliseContrato.numero_contrato.is_(None)
+                )
+            ).first()
+            if existing:
+                return existing
+        
+        return None
+    
+    def salvar_analise(self, contrato_info: ContratoInfo, arquivo_original: Optional[str] = None) -> Optional[AnaliseContrato]:
         """
         Salva uma análise de contrato no banco de dados.
+        Só salva se não existir duplicado.
         
         Args:
             contrato_info: Objeto ContratoInfo com os dados extraídos
             arquivo_original: Nome do arquivo original (opcional)
             
         Returns:
-            AnaliseContrato salvo
+            AnaliseContrato salvo ou existente (se duplicado)
         """
+        # Verifica se já existe
+        existing = self.verificar_duplicado(contrato_info)
+        if existing:
+            print(f"ℹ️  Contrato já existe no banco (ID: {existing.id}). Não salvando duplicado.")
+            return existing
         # Extrai flags de irregularidades das observações
         observacoes_lower = (contrato_info.observacoes or "").lower()
         tem_taxa_abusiva = any(termo in observacoes_lower for termo in [
