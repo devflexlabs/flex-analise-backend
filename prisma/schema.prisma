@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AnaliseContrato {
+  id                      Int       @id @default(autoincrement())
+  dataAnalise             DateTime  @default(now()) @map("data_analise")
+  nomeCliente             String    @db.VarChar(255) @map("nome_cliente")
+  cpfCnpj                 String?   @db.VarChar(20) @map("cpf_cnpj")
+  numeroContrato          String?   @db.VarChar(100) @map("numero_contrato")
+  tipoContrato            String?   @db.VarChar(100) @map("tipo_contrato")
+  bancoCredor             String?   @db.VarChar(255) @map("banco_credor")
+  valorDivida             Float?
+  valorParcela            Float?
+  quantidadeParcelas      Int?
+  taxaJuros               Float?
+  dataVencimentoPrimeira  String?   @db.VarChar(20) @map("data_vencimento_primeira")
+  dataVencimentoUltima    String?   @db.VarChar(20) @map("data_vencimento_ultima")
+  veiculoMarca            String?   @db.VarChar(100) @map("veiculo_marca")
+  veiculoModelo            String?   @db.VarChar(255) @map("veiculo_modelo")
+  veiculoAno              String?   @db.VarChar(10) @map("veiculo_ano")
+  veiculoCor              String?   @db.VarChar(50) @map("veiculo_cor")
+  veiculoPlaca            String?   @db.VarChar(10) @map("veiculo_placa")
+  veiculoRenavam          String?   @db.VarChar(20) @map("veiculo_renavam")
+  temVeiculo              Boolean   @default(false) @map("tem_veiculo")
+  observacoes             String?   @db.Text
+  recalculoBacen          String?   @db.Text @map("recalculo_bacen")
+  estado                  String?   @db.VarChar(2)
+  cidade                  String?   @db.VarChar(100)
+  idadeCliente            Int?
+  temTaxaAbusiva          Boolean   @default(false) @map("tem_taxa_abusiva")
+  temCetAlto              Boolean   @default(false) @map("tem_cet_alto")
+  temClausulasAbusivas    Boolean   @default(false) @map("tem_clausulas_abusivas")
+  arquivoOriginal         String?   @db.VarChar(500) @map("arquivo_original")
+
+  @@index([dataAnalise])
+  @@index([nomeCliente])
+  @@index([cpfCnpj])
+  @@index([numeroContrato])
+  @@index([tipoContrato])
+  @@index([bancoCredor])
+  @@index([taxaJuros])
+  @@index([veiculoMarca])
+  @@index([veiculoPlaca])
+  @@index([temVeiculo])
+  @@index([estado])
+  @@index([cidade])
+  @@index([idadeCliente])
+  @@index([temTaxaAbusiva])
+  @@index([temCetAlto])
+  @@index([temClausulasAbusivas])
+  @@index([bancoCredor, tipoContrato], name: "idx_banco_tipo")
+  @@index([dataAnalise, bancoCredor], name: "idx_data_banco")
+  @@index([estado, bancoCredor], name: "idx_estado_banco")
+  @@index([temVeiculo, bancoCredor], name: "idx_tem_veiculo_banco")
+  @@map("analises_contratos")
+}
+

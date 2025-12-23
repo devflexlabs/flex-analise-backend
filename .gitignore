@@ -1,3 +1,8 @@
+# Prisma
+prisma/migrations/
+*.db
+*.db-journal
+
 # Python
 __pycache__/
 *.py[cod]
@@ -9,30 +14,16 @@ venv/
 ENV/
 .venv
 
-# Ambiente
+# Environment
 .env
 .env.local
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Arquivos de saída
-*_extraido.json
-*.log
-
-# Arquivos de teste
-exemplo_contrato.pdf
-test_*.pdf
-
 # OS
 .DS_Store
 Thumbs.db
-
-# Node
-node_modules/
-.next/
-out/
-build/
