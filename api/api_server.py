@@ -243,6 +243,12 @@ async def extract_contract(file: UploadFile = File(...)):
                 ja_existia = True
                 print(f"ℹ️  Contrato já existe no banco (ID: {analise_salva.id}). Não salvando duplicado.")
             else:
+                # Debug: mostra o que está sendo salvo
+                print(f"📝 Salvando análise no banco:")
+                print(f"   - Veículo: {resultado.veiculo_marca} {resultado.veiculo_modelo} {resultado.veiculo_ano}")
+                print(f"   - Placa: {resultado.veiculo_placa}, RENAVAM: {resultado.veiculo_renavam}")
+                print(f"   - Observações: {len(resultado.observacoes or '')} caracteres")
+                
                 analise_salva = repository.salvar_analise(
                     contrato_info=resultado,
                     arquivo_original=file.filename
@@ -250,6 +256,8 @@ async def extract_contract(file: UploadFile = File(...)):
                 if analise_salva:
                     db.commit()
                     print(f"✅ Análise salva no banco de dados: ID {analise_salva.id}")
+                    print(f"   - Veículo salvo: {analise_salva.veiculo_marca} {analise_salva.veiculo_modelo}")
+                    print(f"   - Observações salvas: {len(analise_salva.observacoes or '')} caracteres")
             db.close()
         except Exception as db_error:
             # Loga erro mas não falha a requisição

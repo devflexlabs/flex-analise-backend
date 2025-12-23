@@ -97,6 +97,18 @@ class AnaliseRepository:
         if contrato_info.recalculo_bacen:
             recalculo_bacen_str = json.dumps(contrato_info.recalculo_bacen)
         
+        # Debug: verifica dados antes de salvar
+        print(f"🔍 Dados recebidos para salvar:")
+        print(f"   - Veículo marca: {contrato_info.veiculo_marca}")
+        print(f"   - Veículo modelo: {contrato_info.veiculo_modelo}")
+        print(f"   - Veículo ano: {contrato_info.veiculo_ano}")
+        print(f"   - Veículo cor: {contrato_info.veiculo_cor}")
+        print(f"   - Veículo placa: {contrato_info.veiculo_placa}")
+        print(f"   - Veículo RENAVAM: {contrato_info.veiculo_renavam}")
+        print(f"   - Observações: {len(contrato_info.observacoes or '')} caracteres")
+        if contrato_info.observacoes:
+            print(f"   - Preview observações: {contrato_info.observacoes[:100]}...")
+        
         # Cria registro
         analise = AnaliseContrato(
             data_analise=datetime.utcnow(),
@@ -129,6 +141,13 @@ class AnaliseRepository:
         self.db.add(analise)
         self.db.commit()
         self.db.refresh(analise)
+        
+        # Debug: verifica dados salvos
+        print(f"✅ Dados salvos no banco:")
+        print(f"   - ID: {analise.id}")
+        print(f"   - Veículo marca salva: {analise.veiculo_marca}")
+        print(f"   - Veículo modelo salvo: {analise.veiculo_modelo}")
+        print(f"   - Observações salvas: {len(analise.observacoes or '')} caracteres")
         
         return analise
     
