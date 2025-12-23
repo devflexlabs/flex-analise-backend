@@ -5,13 +5,15 @@ Pode ser consumida pela aplicação Next.js.
 # IMPORTANTE: Importa o setup do backend ANTES de qualquer import de backend.*
 from ._setup_backend import *  # noqa: F401, F403
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 import os
 import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import Optional
 
 # Carrega .env da pasta config ou raiz
 env_path = Path(__file__).parent.parent / "config" / ".env"
@@ -21,8 +23,20 @@ load_dotenv(dotenv_path=env_path, override=True)
 
 from backend.extractors.contract_extractor_multiplo import ContractExtractorMultiplo
 from backend.processors.document_processor import DocumentProcessor
+from backend.database import init_db, get_db, get_session
+from backend.database.repository import AnaliseRepository
 
 app = FastAPI(title="Extrator de Contratos Financeiros API")
+
+# Inicializa banco de dados na startup
+@app.on_event("startup")
+async def startup_event():
+    """Inicializa o banco de dados na inicialização da API."""
+    try:
+        init_db()
+        print("✅ Banco de dados inicializado com sucesso")
+    except Exception as e:
+        print(f"⚠️  Erro ao inicializar banco de dados: {e}")
 
 # Configura CORS para permitir requisições do Next.js
 app.add_middleware(
@@ -64,6 +78,103 @@ async def root():
 async def health():
     """Health check."""
     return {"status": "ok"}
+
+
+# ==================== ENDPOINTS DE RELATÓRIOS ====================
+
+@app.get("/api/relatorios/estatisticas-banco")
+async def estatisticas_por_banco(
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna estatísticas agregadas por banco.
+    
+    Inclui:
+    - Total de contratos por banco
+    - Taxa média de juros por banco
+    - Valor médio e total de dívidas
+    - Total de veículos financiados
+    - Percentual de contratos com taxa abusiva
+    """
+    repository = AnaliseRepository(db)
+    return repository.estatisticas_por_banco(estado=estado)
+
+
+@app.get("/api/relatorios/estatisticas-produto")
+async def estatisticas_por_produto(
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna estatísticas agregadas por tipo de produto (empréstimo, financiamento, etc.).
+    """
+    repository = AnaliseRepository(db)
+    return repository.estatisticas_por_produto(estado=estado)
+
+
+@app.get("/api/relatorios/mapa-divida")
+async def mapa_divida(
+    ano: int = Query(..., description="Ano do relatório (ex: 2024)"),
+    mes: int = Query(..., description="Mês do relatório (1-12)"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Gera relatório mensal tipo "mapa da dívida".
+    
+    Retorna:
+    - Resumo geral (total de análises, taxas médias, valores)
+    - Top bancos por taxa de juros
+    - Bancos que mais apreendem veículos
+    - Distribuição por estado
+    - Distribuição por faixa etária
+    """
+    if mes < 1 or mes > 12:
+        raise HTTPException(status_code=400, detail="Mês deve estar entre 1 e 12")
+    
+    repository = AnaliseRepository(db)
+    return repository.mapa_divida_mensal(ano=ano, mes=mes, estado=estado)
+
+
+@app.get("/api/relatorios/analises")
+async def listar_analises(
+    limite: int = Query(100, ge=1, le=1000, description="Número máximo de resultados"),
+    offset: int = Query(0, ge=0, description="Offset para paginação"),
+    banco: Optional[str] = Query(None, description="Filtrar por banco"),
+    tipo_contrato: Optional[str] = Query(None, description="Filtrar por tipo de contrato"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado"),
+    db: Session = Depends(get_db)
+):
+    """
+    Lista análises de contratos com filtros opcionais.
+    """
+    repository = AnaliseRepository(db)
+    analises = repository.listar_analises(
+        limite=limite,
+        offset=offset,
+        banco=banco,
+        tipo_contrato=tipo_contrato,
+        estado=estado
+    )
+    return [analise.to_dict() for analise in analises]
+
+
+@app.get("/api/relatorios/analise/{analise_id}")
+async def obter_analise(
+    analise_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtém uma análise específica por ID.
+    """
+    repository = AnaliseRepository(db)
+    analise = repository.obter_por_id(analise_id)
+    
+    if not analise:
+        raise HTTPException(status_code=404, detail="Análise não encontrada")
+    
+    return analise.to_dict()
 
 @app.post("/api/extract")
 async def extract_contract(file: UploadFile = File(...)):
@@ -108,8 +219,28 @@ async def extract_contract(file: UploadFile = File(...)):
         texto_extraido = doc_processor.process_document(file_path=temp_path)
         resultado = extractor.extract_from_text(texto_extraido)
         
+        # Salva automaticamente no banco de dados
+        analise_salva = None
+        try:
+            db = get_session()
+            repository = AnaliseRepository(db)
+            analise_salva = repository.salvar_analise(
+                contrato_info=resultado,
+                arquivo_original=file.filename
+            )
+            db.close()
+            print(f"✅ Análise salva no banco de dados: ID {analise_salva.id}")
+        except Exception as db_error:
+            # Loga erro mas não falha a requisição
+            print(f"⚠️  Erro ao salvar análise no banco: {db_error}")
+            if 'db' in locals():
+                db.close()
+        
         # Converte para dict
-        return JSONResponse(content=resultado.model_dump())
+        resultado_dict = resultado.model_dump()
+        resultado_dict["analise_id"] = analise_salva.id if analise_salva else None
+        
+        return JSONResponse(content=resultado_dict)
         
     except Exception as e:
         raise HTTPException(
