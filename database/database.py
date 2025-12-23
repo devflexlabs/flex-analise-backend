@@ -16,49 +16,47 @@ load_dotenv(dotenv_path=env_path, override=True)
 
 # Configuração do banco de dados
 # Railway usa DATABASE_PUBLIC_URL, mas também aceita DATABASE_URL
-# Por padrão usa SQLite se nenhuma variável estiver configurada
-DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv(
-    "DATABASE_URL",
-    f"sqlite:///{Path(__file__).parent.parent / 'analises_contratos.db'}"
-)
+# PostgreSQL é obrigatório - não usa SQLite
+DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
 
-# Se for SQLite, configura pool estático para permitir acesso concorrente
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        echo=False,  # Mude para True para ver SQL queries
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL ou DATABASE_PUBLIC_URL deve estar configurado. "
+        "PostgreSQL é obrigatório para este projeto."
     )
-else:
-    # PostgreSQL ou outro banco
-    engine = create_engine(DATABASE_URL, echo=False)
+
+# Garante que é PostgreSQL
+if not DATABASE_URL.startswith("postgresql://"):
+    raise ValueError(
+        f"Banco de dados deve ser PostgreSQL. URL recebida: {DATABASE_URL[:50]}..."
+    )
+
+# PostgreSQL - configuração otimizada
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,  # Verifica conexões antes de usar
+    pool_size=5,  # Pool de conexões
+    max_overflow=10,  # Conexões extras permitidas
+    echo=False,  # Mude para True para ver SQL queries
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db():
-    """Inicializa o banco de dados criando todas as tabelas."""
+    """Inicializa o banco de dados PostgreSQL criando todas as tabelas."""
     from .models import Base
     
-    # Cria o diretório se não existir (para SQLite)
-    if DATABASE_URL.startswith("sqlite"):
-        db_path = Path(DATABASE_URL.replace("sqlite:///", ""))
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Para PostgreSQL, dropa e recria as tabelas (apenas em desenvolvimento)
-    # Em produção, use migrations
-    if not DATABASE_URL.startswith("sqlite"):
-        try:
-            # Dropa todas as tabelas existentes
-            Base.metadata.drop_all(bind=engine)
-            print("🗑️  Tabelas antigas removidas")
-        except Exception as e:
-            print(f"⚠️  Erro ao remover tabelas antigas (pode não existir): {e}")
+    try:
+        # Dropa todas as tabelas existentes para recriar do zero
+        Base.metadata.drop_all(bind=engine)
+        print("🗑️  Tabelas antigas removidas")
+    except Exception as e:
+        print(f"⚠️  Erro ao remover tabelas antigas (pode não existir): {e}")
     
     # Cria todas as tabelas
     Base.metadata.create_all(bind=engine)
-    print(f"✅ Banco de dados inicializado: {DATABASE_URL}")
+    print(f"✅ Banco PostgreSQL inicializado: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'PostgreSQL'}")
 
 
 def get_session() -> Session:
