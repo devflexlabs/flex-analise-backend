@@ -18,14 +18,17 @@ load_dotenv(dotenv_path=env_path, override=True)
 database_public_url = os.getenv("DATABASE_PUBLIC_URL")
 database_url = os.getenv("DATABASE_URL")
 
-# URL padrão do Railway (produção)
-DEFAULT_DATABASE_URL = "postgresql://postgres:BPNGoYPTGSXpJClAETqWSfVssyCmzEQt@trolley.proxy.rlwy.net:53591/railway"
-
 # Prisma usa DATABASE_URL, então definimos se DATABASE_PUBLIC_URL estiver disponível
 if database_public_url and not database_url:
     os.environ["DATABASE_URL"] = database_public_url
 
-DATABASE_URL = os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL ou DATABASE_PUBLIC_URL deve estar configurado. "
+        "Configure no Railway ou no arquivo .env"
+    )
 
 # Inicializa cliente Prisma
 # Prisma lê DATABASE_URL do ambiente automaticamente
