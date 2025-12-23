@@ -46,6 +46,17 @@ def init_db():
         db_path = Path(DATABASE_URL.replace("sqlite:///", ""))
         db_path.parent.mkdir(parents=True, exist_ok=True)
     
+    # Para PostgreSQL, dropa e recria as tabelas (apenas em desenvolvimento)
+    # Em produção, use migrations
+    if not DATABASE_URL.startswith("sqlite"):
+        try:
+            # Dropa todas as tabelas existentes
+            Base.metadata.drop_all(bind=engine)
+            print("🗑️  Tabelas antigas removidas")
+        except Exception as e:
+            print(f"⚠️  Erro ao remover tabelas antigas (pode não existir): {e}")
+    
+    # Cria todas as tabelas
     Base.metadata.create_all(bind=engine)
     print(f"✅ Banco de dados inicializado: {DATABASE_URL}")
 
