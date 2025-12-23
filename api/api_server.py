@@ -23,7 +23,10 @@ load_dotenv(dotenv_path=env_path, override=True)
 
 from backend.extractors.contract_extractor_multiplo import ContractExtractorMultiplo
 from backend.processors.document_processor import DocumentProcessor
-from backend.database import init_db, get_db, get_session
+
+# Importa módulo de banco de dados diretamente dos submódulos
+# Isso evita problemas com o __init__.py quando o módulo é carregado dinamicamente
+from backend.database.database import init_db, get_db, get_session
 from backend.database.repository import AnaliseRepository
 
 app = FastAPI(title="Extrator de Contratos Financeiros API")
