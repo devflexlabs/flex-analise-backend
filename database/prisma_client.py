@@ -19,7 +19,7 @@ database_public_url = os.getenv("DATABASE_PUBLIC_URL")
 database_url = os.getenv("DATABASE_URL")
 
 # URL padrão do Railway (produção)
-DEFAULT_DATABASE_URL = "postgresql://postgres:rEWsgCsQrpYniDWpuzDfnVaVakNEffPE@crossover.proxy.rlwy.net:26174/railway"
+DEFAULT_DATABASE_URL = "postgresql://postgres:BPNGoYPTGSXpJClAETqWSfVssyCmzEQt@trolley.proxy.rlwy.net:53591/railway"
 
 # Prisma usa DATABASE_URL, então definimos se DATABASE_PUBLIC_URL estiver disponível
 if database_public_url and not database_url:
