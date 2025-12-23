@@ -15,8 +15,9 @@ if not env_path.exists():
 load_dotenv(dotenv_path=env_path, override=True)
 
 # Configuração do banco de dados
-# Por padrão usa SQLite, mas pode ser configurado para PostgreSQL via variável de ambiente
-DATABASE_URL = os.getenv(
+# Railway usa DATABASE_PUBLIC_URL, mas também aceita DATABASE_URL
+# Por padrão usa SQLite se nenhuma variável estiver configurada
+DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv(
     "DATABASE_URL",
     f"sqlite:///{Path(__file__).parent.parent / 'analises_contratos.db'}"
 )
