@@ -27,8 +27,29 @@ from backend.processors.document_processor import DocumentProcessor
 # Importa módulo de banco de dados usando SQLAlchemy
 from backend.database.database import init_db, get_db, get_session
 from backend.database.repository import AnaliseRepository
+from backend.models.api_models import (
+    HealthResponse, RootResponse, EstatisticaBanco, EstatisticaProduto, 
+    MapaDividaResponse, AnaliseItem, ExtractResponse
+)
+from typing import List
 
-app = FastAPI(title="Extrator de Contratos Financeiros API")
+app = FastAPI(
+    title="Extrator de Contratos Financeiros API",
+    description="""
+    API para extração de dados de contratos financeiros (PDF/Imagens) e geração de relatórios estatísticos.
+    
+    Esta API permite:
+    * **Extrair** dados de contratos usando IA.
+    * **Gerar** relatórios agregados por banco e produto.
+    * **Visualizar** o "Mapa da Dívida" mensal.
+    * **Gerenciar** histórico de análises.
+    """,
+    version="1.0.0",
+    contact={
+        "name": "Suporte Flex Análise",
+        "url": "https://flexanalise.com.br",
+    },
+)
 
 # Inicializa banco de dados na startup
 @app.on_event("startup")
@@ -71,20 +92,25 @@ def get_doc_processor():
         _doc_processor = DocumentProcessor(ocr_provider="auto")
     return _doc_processor
 
-@app.get("/")
+@app.get("/", response_model=RootResponse, tags=["Geral"], summary="Endpoint raiz")
 async def root():
-    """Endpoint raiz."""
+    """Retorna informações básicas da API."""
     return {"message": "Extrator de Contratos Financeiros API", "version": "1.0.0"}
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse, tags=["Geral"], summary="Verificação de integridade")
 async def health():
-    """Health check."""
+    """Verifica se a API está respondendo corretamente."""
     return {"status": "ok"}
 
 
 # ==================== ENDPOINTS DE RELATÓRIOS ====================
 
-@app.get("/api/relatorios/estatisticas-banco")
+@app.get(
+    "/api/relatorios/estatisticas-banco", 
+    response_model=List[EstatisticaBanco], 
+    tags=["Relatórios"], 
+    summary="Estatísticas por banco"
+)
 async def estatisticas_por_banco(
     estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
     db: Session = Depends(get_db)
@@ -112,7 +138,12 @@ async def estatisticas_por_banco(
         )
 
 
-@app.get("/api/relatorios/estatisticas-produto")
+@app.get(
+    "/api/relatorios/estatisticas-produto", 
+    response_model=List[EstatisticaProduto], 
+    tags=["Relatórios"], 
+    summary="Estatísticas por produto"
+)
 async def estatisticas_por_produto(
     estado: Optional[str] = Query(None, description="Filtrar por estado (ex: RS)"),
     db: Session = Depends(get_db)
@@ -124,7 +155,12 @@ async def estatisticas_por_produto(
     return repository.estatisticas_por_produto(estado=estado)
 
 
-@app.get("/api/relatorios/mapa-divida")
+@app.get(
+    "/api/relatorios/mapa-divida", 
+    response_model=MapaDividaResponse, 
+    tags=["Relatórios"], 
+    summary="Relatório Mapa da Dívida"
+)
 async def mapa_divida(
     ano: int = Query(..., description="Ano do relatório (ex: 2024)"),
     mes: int = Query(..., description="Mês do relatório (1-12)"),
@@ -148,7 +184,12 @@ async def mapa_divida(
     return repository.mapa_divida_mensal(ano=ano, mes=mes, estado=estado)
 
 
-@app.get("/api/relatorios/analises")
+@app.get(
+    "/api/relatorios/analises", 
+    response_model=List[AnaliseItem], 
+    tags=["Análises"], 
+    summary="Listar todas as análises"
+)
 async def listar_analises(
     limite: int = Query(100, ge=1, le=1000, description="Número máximo de resultados"),
     offset: int = Query(0, ge=0, description="Offset para paginação"),
@@ -171,7 +212,12 @@ async def listar_analises(
     return [analise.to_dict() for analise in analises]
 
 
-@app.get("/api/relatorios/analise/{analise_id}")
+@app.get(
+    "/api/relatorios/analise/{analise_id}", 
+    response_model=AnaliseItem, 
+    tags=["Análises"], 
+    summary="Obter análise por ID"
+)
 async def obter_analise(
     analise_id: int,
     db: Session = Depends(get_db)
@@ -187,7 +233,12 @@ async def obter_analise(
     
     return analise.to_dict()
 
-@app.post("/api/extract")
+@app.post(
+    "/api/extract", 
+    response_model=ExtractResponse, 
+    tags=["Extração"], 
+    summary="Extrair contrato"
+)
 async def extract_contract(file: UploadFile = File(...)):
     """
     Extrai informações de um contrato (PDF ou imagem).
