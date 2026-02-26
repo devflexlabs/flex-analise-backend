@@ -62,8 +62,9 @@ else:
 # Muda o diretório de trabalho para a raiz
 os.chdir(root_dir)
 
-print(f"✓ Executando API a partir de: {root_dir}")
-print(f"✓ Importando: {app_import}")
+print(f"[OK] Executando API a partir de: {root_dir}")
+print(f"[OK] Importando: {app_import}")
+
 
 # Importa e executa a API
 if __name__ == "__main__":

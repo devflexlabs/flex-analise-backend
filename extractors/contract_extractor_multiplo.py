@@ -81,207 +81,35 @@ class ContractExtractorMultiplo:
         # 3. Identificação mais confiável de bancos/instituições
         # 4. Melhor tratamento de diferentes formatos de contrato
         self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", """Você é um especialista em análise de contratos financeiros brasileiros com conhecimento profundo em:
-- Legislação brasileira (CDC, normas BACEN/CMN)
-- Cálculos financeiros (tabela Price, SAC, juros compostos)
-- Identificação de práticas abusivas em contratos bancários
-- Análise crítica de taxas, encargos e cláusulas contratuais
+            ("system", """Você é um especialista em análise de contratos financeiros brasileiros (CDC, normas BACEN, Tabela Price/SAC).
+Extraia informações estruturadas com MÁXIMA PRECISÃO. 
+IMPORTANTE: Contratos têm layouts variados. Procure por sinônimos (ex: devedor/cliente).
 
-Sua tarefa é extrair informações estruturadas de contratos financeiros com MÁXIMA PRECISÃO, independente do formato ou ordem das informações.
+CRITÉRIOS:
+1. PRECISÃO NUMÉRICA: Valores, taxas e datas EXATAMENTE como aparecem.
+2. ANÁLISE CRÍTICA: Identifique abusividades (Taxas > 5% a.m., multas > 2%, CET omitido).
+3. BANCO: Identifique por nome, logo ou CNPJ.
 
-CRITÉRIOS DE QUALIDADE:
-- PRECISÃO NUMÉRICA: Todos os valores monetários, taxas e datas devem ser extraídos EXATAMENTE como aparecem
-- ANÁLISE CRÍTICA: Identifique TODAS as irregularidades e práticas abusivas possíveis
-- COMPLETUDE: Não deixe campos importantes vazios se a informação estiver disponível no documento
+CAMPOS:
+- Nome Cliente, CPF/CNPJ.
+- Valor Dívida, Parcelas (qtd e valor), 1º Vencimento.
+- Taxa Juros Operação (mensal). NÃO confunda com CET.
+- Banco Credor (Obrigatório).
+- Dados Veículo (marca, modelo, ano, placa, renavam).
 
-IMPORTANTE: 
-- Os contratos podem ter formatos COMPLETAMENTE DIFERENTES (cada banco/financeira tem seu próprio layout)
-- Pode ser contrato ORIGINAL ou ADITIVO DE RENEGOCIAÇÃO
-- As informações podem estar em qualquer ordem e com nomenclaturas diferentes
-- Procure por sinônimos e variações (ex: "emitente", "devedor", "cliente", "contratante")
-- Valores podem estar escritos de várias formas (R$ 50.000,00, R$ 50000.00, 50000 reais, etc.)
-- SEJA METICULOSO: Leia cada seção do documento, incluindo rodapés, cabeçalhos e anexos
-
-CAMpos E VARIAÇÕES COMUNS:
-- Nome do cliente: "Nome/Razão Social", "Cliente", "Emitente", "Devedor", "Contratante", "Solicitante"
-- Valor da dívida: "Valor Total Financiado", "Valor Total do Crédito", "Valor Total Confessado", "Saldo Devedor Remanescente", "Valor Total a Pagar", "Valor do Financiamento"
-- Parcelas: "Quantidade de parcelas", "Número de parcelas", pode estar como "(II) Quantidade de parcelas", "053 parcelas", etc.
-- Valor parcela: "Valor das parcelas", "(I) Valor das parcelas", "Valor de cada parcela mensal", "Parcela de"
-- Datas: "Vencimento da 1ª parcela", "Data do 1° Vencimento", "Primeira parcela", formato pode ser DD/MM/YYYY ou DD-MM-YYYY
-- Taxa juros: "Taxa de juros da operação", "Taxa de juros", "Juros Remuneratórios", "Taxa de juros mensal", "Taxa de juros anual" 
-  * CRÍTICO: NÃO confundir com CET (Custo Efetivo Total). Priorize sempre a "Taxa de juros da operação"
-  * Pode estar como "% a.m." (ao mês), "% a.a." (ao ano), ou apenas "%" (assuma mensal se não especificado)
-  * Se encontrar taxa anual, converta para mensal usando: (1 + taxa_anual)^(1/12) - 1
-  * Se encontrar taxa mensal, mantenha como está
-  * Se encontrar apenas CET, deixe taxa_juros como null (CET não é taxa de juros)
-- Número contrato: "Nº", "Número", "Proposta", "Contrato nº", "Cédula de Crédito Bancário Nº", "Aditivo de Renegociação nº"
-- Banco/Instituição Financeira: Procure por logo, nome da instituição, "Instituição Financeira", "Credor", "Banco", "Financeira", "AYMORÉ", "Santander", "Itaú", "Bradesco", etc. Pode estar no cabeçalho, rodapé ou qualquer seção
-
-Extraia as seguintes informações quando disponíveis:
-1. Nome completo do cliente/devedor/emitente (procure em várias seções, incluindo assinatura) - OBRIGATÓRIO
-2. Valor total da dívida/financiamento (priorize "Valor Total Financiado" ou "Saldo Devedor Remanescente" em renegociações) - pode ser null se não encontrado
-3. Quantidade de parcelas (pode estar escrito como "053" ou "53") - pode ser null se não encontrado no contrato
-4. Valor de cada parcela mensal - pode ser null se não encontrado
-5. Data de vencimento da primeira parcela (formato YYYY-MM-DD)
-6. Data de vencimento da última parcela (se disponível)
-7. Taxa de juros mensal da OPERAÇÃO (priorize % ao mês) - NÃO confundir com CET. Use a "Taxa de juros da operação", não o "CET" (Custo Efetivo Total)
-8. Número do contrato/proposta/aditivo
-9. CPF ou CNPJ do cliente (não da empresa/banco - procure na seção do cliente)
-10. Tipo de contrato (financiamento, empréstimo, aditivo de renegociação, etc.)
-11. Nome do banco ou instituição financeira credora (OBRIGATÓRIO extrair quando disponível):
-    - CRÍTICO: Mesmo que o nome não esteja escrito, identifique pelo logo, CNPJ, ou outros indicadores
-    - Procure por: logo do banco (mesmo que só apareça a logo), nome da instituição financeira, CNPJ da instituição, "Instituição Financeira", "Credor", "Banco", "Financeira"
-    - Exemplos conhecidos:
-      * Santander: logo vermelho, "Santander", "AYMORÉ CRÉDITO", CNPJ 07.707.650/0001-10
-      * Banco do Brasil: logo azul, "Banco do Brasil", "BB"
-      * Itaú: logo laranja, "Itaú", "Itaú Unibanco"
-      * Bradesco: logo azul/verde, "Bradesco"
-      * Caixa: "Caixa Econômica Federal", "CEF"
-      * Outros: procure por qualquer menção a instituição financeira, CNPJ, ou logo
-    - Pode estar no cabeçalho, rodapé, ou em qualquer seção do documento
-    - Se houver logo (mesmo sem texto), identifique o banco pelo logo e mencione no campo banco_credor
-    - Se encontrar CNPJ, pode identificar o banco pelo CNPJ conhecido
-    - Se não encontrar nenhum indicador, deixe como null
-12. Informações do veículo (se aplicável - apenas para contratos de financiamento de veículos):
-    - Marca do veículo (ex: NISSAN, TOYOTA, FORD, etc.)
-    - Modelo completo do veículo (ex: V-DRIVE DRIVE 1.0 12V A4B, COROLLA XEI 2.0 FLEX, etc.)
-    - Ano/Modelo do veículo (ex: 2021, 2012, etc.)
-    - Cor do veículo (ex: branca, preta, prata, etc.)
-    - Placa do veículo (se mencionada no contrato)
-    - RENAVAM do veículo (se mencionado no contrato - número de registro do veículo)
-12. Observações relevantes: escreva um texto completo e bem formatado. OBRIGATORIAMENTE inclua DOIS PARÁGRAFOS:
-
-    PARÁGRAFO 1 - Informações do contrato:
-    - Informações sobre o bem financiado: marca, modelo, ano, valor à vista (se aplicável)
-    - Valor total financiado/confessado
-    - Quantidade de parcelas e valor de cada parcela
-    - Taxa de juros mensal e anual
-    - CET (Custo Efetivo Total) se disponível
-    - Outras informações: seguros, garantias, condições contratuais importantes
-
-    PARÁGRAFO 2 - ANÁLISE OBRIGATÓRIA DE IRREGULARIDADES E CLÁUSULAS ABUSIVAS (ESTE PARÁGRAFO É OBRIGATÓRIO):
-    Você DEVE SEMPRE incluir este segundo parágrafo analisando explicitamente:
-    
-    * Taxas de juros (ANÁLISE OBRIGATÓRIA):
-      - Taxas entre 2-3% a.m. = NORMAL (padrão de mercado)
-      - Taxas entre 3-4% a.m. = ALTA (mencione explicitamente e compare com mercado)
-      - Taxas entre 4-5% a.m. = MUITO ALTA (mencione explicitamente como potencialmente abusiva)
-      - Taxas acima de 5% a.m. = EXTREMAMENTE ALTA e ABUSIVA (mencione explicitamente como prática abusiva)
-      - Compare sempre com padrão de mercado: 2-4% a.m. é comum para financiamento de veículos, 1-3% para empréstimos consignados
-      - Se a taxa estiver acima do padrão, identifique como possível violação de normas BACEN sobre taxas abusivas
-    
-    * CET (Custo Efetivo Total) - ANÁLISE OBRIGATÓRIA:
-      - Se o CET estiver muito acima da taxa de juros (diferença > 2% a.m. ou > 30% a.a.), identifique como ENCARGOS EXCESSIVOS
-      - CET entre 40-60% a.a. = ALTO (mencione explicitamente)
-      - CET entre 60-80% a.a. = MUITO ALTO (mencione explicitamente como potencialmente abusivo)
-      - CET acima de 80% a.a. = EXTREMAMENTE ALTO e ABUSIVO (mencione explicitamente como prática abusiva)
-      - Se o CET não estiver claramente informado no contrato, identifique como FALTA DE TRANSPARÊNCIA (violação de normas BACEN)
-    
-    * Cláusulas abusivas segundo CDC (Código de Defesa do Consumidor):
-      - Multas acima de 2% = ABUSIVA (identifique explicitamente)
-      - Juros moratórios acima de 1% ao mês = possivelmente ABUSIVO (identifique explicitamente)
-      - Cláusulas que limitam direitos do consumidor
-      - Condições não transparentes
-      - Encargos desproporcionais
-    
-    * Irregularidades com normas do BACEN/CMN (ANÁLISE OBRIGATÓRIA):
-      - Falta de transparência no CET ou nas condições (viola Circular BACEN 3.517/2017)
-      - Encargos não mencionados claramente (viola normas de transparência)
-      - Taxas ou tarifas desproporcionais (viola princípio da proporcionalidade)
-      - CET não informado ou informado de forma confusa (viola obrigação de transparência)
-      - Taxa de juros não claramente identificada (viola normas de transparência)
-      - Informações essenciais em letras miúdas ou de difícil leitura (viola transparência)
-    
-    * Outras irregularidades: identifique qualquer condição abusiva ou irregular
-    
-    IMPORTANTE: Sempre termine este segundo parágrafo com uma frase clara como:
-    - "IRREGULARIDADES IDENTIFICADAS: [liste cada uma explicitamente]" OU
-    - "NÃO FORAM IDENTIFICADAS IRREGULARIDADES EVIDENTES, porém [mencione taxas altas ou condições questionáveis se houver]"
-    
-    FORMATO: Use quebras de linha duplas (\n\n) para separar os dois parágrafos principais.
-
-INSTRUÇÕES ESPECÍFICAS:
-- IMPORTANTE: O contrato pode ser de QUALQUER TIPO: financiamento de veículos, empréstimo, aditivo de renegociação, serviço de negociação de dívida, etc. Adapte a extração ao tipo de contrato.
-- Seja MUITO cuidadoso e procure em TODAS as seções do documento
-- Para valores monetários, converta para número decimal (ex: R$ 50.000,00 -> 50000.00)
-- Para datas, use formato YYYY-MM-DD (ex: 28/02/2025 -> 2025-02-28)
-- Em aditivos de renegociação, o valor principal geralmente é "Saldo Devedor Remanescente" ou "Valor Total Confessado"
-- Em contratos de serviços (negociação de dívida, etc.), o valor_divida pode ser null se não houver dívida direta no contrato
-- Quantidade de parcelas pode estar com zeros à esquerda (053 = 53)
-- Se uma informação não estiver clara ou não existir, deixe como None/null
-- SEMPRE procure no documento inteiro, não apenas nas primeiras páginas
-- CRÍTICO: O campo "observacoes" DEVE ser sempre completo e bem formatado. NÃO corte o texto no meio. Se o texto for muito longo, resuma mas mantenha a análise de irregularidades completa.
-- Para observações: escreva em parágrafos completos e bem formatados, sem quebras de linha no meio das palavras. Inclua:
-  * Informações do bem financiado (marca, modelo, ano)
-  * Análise de possíveis irregularidades:
-    - Taxas de juros excessivas (acima de 5% ao mês pode ser considerado alto)
-    - CET muito elevado ou não transparente
-    - Cláusulas que podem violar o CDC
-    - Irregularidades com normas do BACEN/CMN
-    - Encargos, tarifas ou multas excessivas
-    - Condições abusivas ou desproporcionais
-    - Falta de transparência
-  * Outras informações relevantes
-- CRÍTICO PARA OBSERVAÇÕES: Você DEVE SEMPRE incluir uma análise explícita de irregularidades. Procure e identifique:
-  * Taxa de juros acima de 3% a.m. (pode ser considerada alta) ou acima de 5% a.m. (MUITO ALTA, possivelmente abusiva)
-  * CET muito acima da taxa de juros (diferença > 2% indica encargos excessivos)
-  * CET acima de 60% a.a. (pode ser considerado alto)
-  * Multas acima de 2% (abusivas segundo CDC)
-  * Juros moratórios acima de 1% ao mês (podem ser abusivos)
-  * Falta de transparência nas informações
-  * Cláusulas que podem violar o CDC (Código de Defesa do Consumidor)
-  * Violações potenciais de normas do BACEN/CMN
-  * Encargos ou tarifas desproporcionais
-- OBRIGATÓRIO: Sempre termine as observações com uma seção específica sobre irregularidades encontradas. Se encontrar, liste cada uma explicitamente. Se não encontrar irregularidades evidentes, ainda assim mencione se há taxas altas ou condições questionáveis, e diga claramente "Não foram identificadas irregularidades evidentes no contrato".
-- IMPORTANTE: Escreva as observações em parágrafos completos e coerentes, separados por quebras de linha duplas (\n\n). Não use espaços entre caracteres de uma mesma palavra. Use R$ para valores monetários (padrão brasileiro).
+OBSERVAÇÕES (2 Parágrafos):
+P1: Resumo dos dados (valores, taxas, bem).
+P2: Análise de Irregularidades (Obrigatório). Avalie juros, CET, multas (>2%) e transparência.
+Termine com: "IRREGULARIDADES IDENTIFICADAS: [lista]" ou "NÃO FORAM IDENTIFICADAS IRREGULARIDADES EVIDENTES".
 
 {format_instructions}"""),
-            ("human", """Analise o seguinte contrato e extraia as informações solicitadas. O contrato pode ser de QUALQUER TIPO (financiamento, empréstimo, aditivo de renegociação, serviço de negociação de dívida, etc.) - procure cuidadosamente em TODAS as seções.
+            ("human", """Analise o contrato abaixo e extraia os dados. 
+Máximo 500 palavras nas observações.
 
-CRÍTICO - OBSERVAÇÕES DEVEM TER 2 PARÁGRAFOS OBRIGATÓRIOS (MÁXIMO 500 palavras no total):
-
-PARÁGRAFO 1 (máximo 200 palavras): Informações básicas do contrato (valor, parcelas, taxas, bem financiado ou objeto do contrato, etc.)
-
-PARÁGRAFO 2 (máximo 300 palavras): ANÁLISE OBRIGATÓRIA DE IRREGULARIDADES E CLÁUSULAS ABUSIVAS
-Você DEVE SEMPRE incluir este segundo parágrafo analisando METICULOSAMENTE:
-
-ANÁLISE DE TAXAS (OBRIGATÓRIA):
-- Taxas entre 3-4% a.m. = ALTA (mencione explicitamente e compare com mercado)
-- Taxas entre 4-5% a.m. = MUITO ALTA (mencione explicitamente como potencialmente abusiva)
-- Taxas acima de 5% a.m. = EXTREMAMENTE ALTA e ABUSIVA (mencione explicitamente como prática abusiva)
-
-ANÁLISE DE CET (OBRIGATÓRIA):
-- CET entre 60-80% a.a. = MUITO ALTO (mencione explicitamente como potencialmente abusivo)
-- CET acima de 80% a.a. = EXTREMAMENTE ALTO e ABUSIVO (mencione explicitamente)
-- Diferença entre CET e taxa de juros > 30% a.a. = ENCARGOS EXCESSIVOS (identifique explicitamente)
-
-ANÁLISE DE ENCARGOS (OBRIGATÓRIA):
-- Multas acima de 2% = ABUSIVA segundo CDC Art. 52, §1º (identifique explicitamente)
-- Juros moratórios acima de 1% ao mês = ABUSIVO segundo jurisprudência (identifique explicitamente)
-- Soma de multa + juros moratórios > 2% ao mês = ABUSIVO (identifique explicitamente)
-
-ANÁLISE DE CLÁUSULAS (OBRIGATÓRIA):
-- Cláusulas que limitam direitos do consumidor (identifique quais)
-- Condições não transparentes ou difíceis de entender (identifique quais)
-- Qualquer cláusula que possa violar CDC ou normas BACEN/CMN (identifique especificamente)
-
-SEMPRE termine o segundo parágrafo com: "IRREGULARIDADES IDENTIFICADAS: [liste cada uma]" OU "NÃO FORAM IDENTIFICADAS IRREGULARIDADES EVIDENTES, porém [mencione taxas altas ou condições questionáveis se houver]"
-
-IMPORTANTE: 
-- Mantenha as observações concisas mas completas. NÃO corte o texto no meio. O JSON DEVE estar completo e válido.
-- Campos numéricos (quantidade_parcelas, valor_divida, valor_parcela, taxa_juros) podem ser null se não estiverem disponíveis no contrato.
-- Use null (não 0) quando a informação não estiver presente no documento.
-- O campo nome_cliente é OBRIGATÓRIO e sempre deve ter um valor.
-- CRÍTICO - BANCO/INSTITUIÇÃO FINANCEIRA: 
-  * Se houver logo do banco (mesmo sem texto), identifique pelo logo (ex: logo vermelho = Santander, logo azul = Banco do Brasil, etc.)
-  * Procure por CNPJ da instituição financeira e identifique o banco pelo CNPJ
-  * Procure por qualquer menção a "Instituição Financeira", "Credor", "Banco", "Financeira"
-  * Exemplos: "Santander", "AYMORÉ CRÉDITO", "Banco do Brasil", "Itaú", "Bradesco", "Caixa Econômica Federal"
-  * Se identificar o banco, preencha o campo banco_credor com o nome completo
-
-Contrato a analisar:
+Contrato:
 {contract_text}""")
         ])
+
     
     def _detectar_provider(self) -> str:
         """Detecta qual provider está disponível."""
@@ -575,7 +403,7 @@ Contrato a analisar:
             return result
         
         try:
-            print("🔄 Iniciando recálculo com dados do BACEN...")
+            print("[INFO] Iniciando recálculo com dados do BACEN...")
             recalculo = self.recalculador.recalcular_contrato(
                 valor_principal=result.valor_divida,
                 taxa_juros_contrato=result.taxa_juros,
@@ -589,32 +417,33 @@ Contrato a analisar:
             
             if recalculo.get("sucesso"):
                 result.recalculo_bacen = recalculo
-                print("✅ Recálculo com BACEN concluído com sucesso")
+                print("[OK] Recálculo com BACEN concluído com sucesso")
                 
                 # Adiciona informações de recálculo nas observações se houver divergências
                 if recalculo.get("comparacao") and recalculo["comparacao"].get("diferenca_price"):
                     diff = recalculo["comparacao"]["diferenca_price"]
                     if diff > 1.0:  # Diferença maior que R$ 1,00
-                        aviso = f"\n\n⚠️ RECÁLCULO BACEN: Divergência detectada entre valor da parcela do contrato (R$ {result.valor_parcela:.2f}) e cálculo Price (R$ {recalculo['recalculo_price']['valor_parcela']:.2f}). Diferença: R$ {diff:.2f}."
+                        aviso = f"\n\n[WARN] RECÁLCULO BACEN: Divergência detectada entre valor da parcela do contrato (R$ {result.valor_parcela:.2f}) e cálculo Price (R$ {recalculo['recalculo_price']['valor_parcela']:.2f}). Diferença: R$ {diff:.2f}."
+
+                        aviso = f"\n\n[WARN] RECÁLCULO BACEN: Divergência detectada entre valor da parcela do contrato (R$ {result.valor_parcela:.2f}) e cálculo Price (R$ {recalculo['recalculo_price']['valor_parcela']:.2f}). Diferença: R$ {diff:.2f}."
                         if result.observacoes:
                             result.observacoes += aviso
                         else:
                             result.observacoes = aviso
             else:
-                print(f"⚠️ Recálculo com BACEN não foi possível: {recalculo.get('erro')}")
+                print(f"[WARN] Recálculo com BACEN não foi possível: {recalculo.get('erro')}")
         except Exception as e:
-            print(f"⚠️ Erro ao recalcular com BACEN: {e}")
+            print(f"[WARN] Erro ao recalcular com BACEN: {e}")
             # Não falha a extração se o recálculo falhar
         
         return result
     
-    def _truncar_texto_inteligente(self, text: str, max_chars: int = 3000) -> str:
+    def _truncar_texto_inteligente(self, text: str, max_chars: int = 2500) -> str:
         """
         Trunca o texto mantendo início e fim (onde geralmente estão as informações importantes).
         Limite do Groq: 6000 tokens/minuto (TPM) para modelo llama-3.1-8b-instant.
-        Considerando que o prompt consome ~2000-2500 tokens, deixamos ~3500 tokens para o texto.
-        1 token ≈ 4 chars, então ~3000 chars é seguro para o texto do contrato.
         """
+
         if len(text) <= max_chars:
             return text
         
@@ -635,10 +464,11 @@ Contrato a analisar:
         
         processed_text = self.document_processor.clean_text(text)
         
-        # Trunca o texto se necessário (limite do Groq é 6000 tokens/minuto para llama-3.1-8b-instant)
-        # O prompt consome ~2000-2500 tokens, então deixamos ~3500 tokens para o texto
-        # 1 token ≈ 4 chars, então ~14000 chars seria o limite teórico, mas para ser conservador usamos 3000 chars
-        processed_text = self._truncar_texto_inteligente(processed_text, max_chars=3000)
+        # Trunca o texto se necessário para não exceder limites de tokens (ex: 6000 TPM do Groq)
+        # 1 token ≈ 4 chars. Para deixar margem para um prompt de ~1500 tokens,
+        # usamos um limite de 2500 caracteres (aprox 600-800 tokens) para o texto.
+        processed_text = self._truncar_texto_inteligente(processed_text, max_chars=2500)
+
         
         chain = self.prompt_template | self.llm | self.output_parser
         
@@ -653,13 +483,13 @@ Contrato a analisar:
                 banco_detectado = self._detectar_banco_por_cnpj(text)
                 if banco_detectado:
                     result.banco_credor = banco_detectado
-                    print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+                    print(f"[DEBUG] DEBUG: Banco detectado por CNPJ: {banco_detectado}")
             
             # Log de debug
             if result.banco_credor:
-                print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+                print(f"[OK] DEBUG: Banco identificado: {result.banco_credor}")
             else:
-                print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                print(f"[WARN] DEBUG: Banco NÃO identificado no contrato")
             
             # Aplica recálculo com BACEN
             result = self._aplicar_recalculo_bacen(result)
@@ -687,13 +517,14 @@ Contrato a analisar:
                         banco_detectado = self._detectar_banco_por_cnpj(text)
                         if banco_detectado:
                             result.banco_credor = banco_detectado
-                            print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+                            print(f"[DEBUG] Banco detectado por CNPJ: {banco_detectado}")
                     
                     # Log de debug
                     if result.banco_credor:
-                        print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+                        print(f"[OK] DEBUG: Banco identificado: {result.banco_credor}")
                     else:
-                        print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                        print(f"[WARN] DEBUG: Banco NÃO identificado no contrato")
+
                     
                     # Aplica recálculo com BACEN
                     result = self._aplicar_recalculo_bacen(result)
@@ -713,13 +544,13 @@ Contrato a analisar:
                             banco_detectado = self._detectar_banco_por_cnpj(text)
                             if banco_detectado:
                                 result.banco_credor = banco_detectado
-                                print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+                                print(f"[DEBUG] DEBUG: Banco detectado por CNPJ: {banco_detectado}")
                         
                         # Log de debug
                         if result.banco_credor:
-                            print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+                            print(f"[OK] DEBUG: Banco identificado: {result.banco_credor}")
                         else:
-                            print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                            print(f"[WARN] DEBUG: Banco NÃO identificado no contrato")
                         
                         # Aplica recálculo com BACEN
                         result = self._aplicar_recalculo_bacen(result)
@@ -749,13 +580,13 @@ Contrato a analisar:
                             banco_detectado = self._detectar_banco_por_cnpj(text)
                             if banco_detectado:
                                 result.banco_credor = banco_detectado
-                                print(f"🔍 DEBUG: Banco detectado por CNPJ: {banco_detectado}")
+                                print(f"[DEBUG] DEBUG: Banco detectado por CNPJ: {banco_detectado}")
                         
                         # Log de debug
                         if result.banco_credor:
-                            print(f"✅ DEBUG: Banco identificado: {result.banco_credor}")
+                            print(f"[OK] DEBUG: Banco identificado: {result.banco_credor}")
                         else:
-                            print(f"⚠️  DEBUG: Banco NÃO identificado no contrato")
+                            print(f"[WARN] DEBUG: Banco NÃO identificado no contrato")
                         
                         # Aplica recálculo com BACEN
                         result = self._aplicar_recalculo_bacen(result)

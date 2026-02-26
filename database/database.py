@@ -50,13 +50,15 @@ def init_db():
     try:
         # Dropa todas as tabelas existentes para recriar do zero
         Base.metadata.drop_all(bind=engine)
-        print("🗑️  Tabelas antigas removidas")
+        print("[INFO] Tabelas antigas removidas")
     except Exception as e:
-        print(f"⚠️  Erro ao remover tabelas antigas (pode não existir): {e}")
+        print(f"[WARN] Erro ao remover tabelas antigas (pode nao existir): {e}")
+
     
     # Cria todas as tabelas
     Base.metadata.create_all(bind=engine)
-    print(f"✅ Banco PostgreSQL inicializado: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'PostgreSQL'}")
+    print(f"[OK] Banco PostgreSQL inicializado: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'PostgreSQL'}")
+
 
 
 def get_session() -> Session:

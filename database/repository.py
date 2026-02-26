@@ -67,8 +67,9 @@ class AnaliseRepository:
         # Verifica se já existe
         existing = self.verificar_duplicado(contrato_info)
         if existing:
-            print(f"ℹ️  Contrato já existe no banco (ID: {existing.id}). Não salvando duplicado.")
+            print(f"[INFO] Contrato já existe no banco (ID: {existing.id}). Não salvando duplicado.")
             return existing
+
         # Extrai flags de irregularidades das observações
         observacoes_lower = (contrato_info.observacoes or "").lower()
         tem_taxa_abusiva = any(termo in observacoes_lower for termo in [
@@ -98,7 +99,8 @@ class AnaliseRepository:
             recalculo_bacen_str = json.dumps(contrato_info.recalculo_bacen)
         
         # Debug: verifica dados antes de salvar
-        print(f"🔍 Dados recebidos para salvar:")
+        print(f"[DEBUG] Dados recebidos para salvar:")
+
         print(f"   - Veículo marca: {contrato_info.veiculo_marca}")
         print(f"   - Veículo modelo: {contrato_info.veiculo_modelo}")
         print(f"   - Veículo ano: {contrato_info.veiculo_ano}")
@@ -143,7 +145,8 @@ class AnaliseRepository:
         self.db.refresh(analise)
         
         # Debug: verifica dados salvos
-        print(f"✅ Dados salvos no banco:")
+        print(f"[OK] Dados salvos no banco:")
+
         print(f"   - ID: {analise.id}")
         print(f"   - Veículo marca salva: {analise.veiculo_marca}")
         print(f"   - Veículo modelo salvo: {analise.veiculo_modelo}")

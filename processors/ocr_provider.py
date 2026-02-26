@@ -31,8 +31,16 @@ class TesseractOCRProvider(OCRProvider):
         try:
             import pytesseract
             self.pytesseract = pytesseract
+            
+            # Tenta caminhos comuns no Windows caso não esteja no PATH
+            import os
+            windows_tesseract = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+            if os.path.exists(windows_tesseract):
+                self.pytesseract.pytesseract.tesseract_cmd = windows_tesseract
+                print(f"[INFO] Usando tesseract em: {windows_tesseract}")
         except ImportError:
             raise ImportError("pytesseract não está instalado. Execute: pip install pytesseract")
+
     
     def extract_text(self, image_path: str = None, image_bytes: bytes = None) -> str:
         """Extrai texto usando Tesseract."""
@@ -186,39 +194,37 @@ def get_ocr_provider(provider: str = "auto") -> OCRProvider:
     
     if provider == "auto":
         # Tenta encontrar o melhor provedor disponível
-        # Prioridade: EasyOCR (funciona em qualquer lugar) > Tesseract > Serviços em nuvem
+        # Ordem de tentativa: EasyOCR -> Tesseract -> Serviços em nuvem
         
-        # Tenta EasyOCR primeiro (não precisa instalação do sistema)
+        # 1. Tenta EasyOCR
         try:
+            import easyocr
+            import torch # Verifica se torch está realmente funcionando (comum quebrar no Windows)
             return EasyOCRProvider()
-        except:
-            pass
+        except Exception as e:
+            print(f"[DEBUG] EasyOCR indisponível: {e}")
         
-        # Tenta Tesseract (pode não estar instalado)
+        # 2. Tenta Tesseract
         try:
+            import pytesseract
+            # Tenta verificar se o executável do tesseract existe
             return TesseractOCRProvider()
-        except:
-            pass
+        except Exception as e:
+            print(f"[DEBUG] Tesseract indisponível: {e}")
         
-        # Tenta Google Vision (se tiver credenciais configuradas)
+        # 3. Tenta Google Vision
         try:
             if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
                 return GoogleVisionOCRProvider()
-        except:
-            pass
-        
-        # Tenta AWS Textract (se tiver credenciais configuradas)
-        try:
-            if os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY'):
-                return AWSTextractOCRProvider()
-        except:
-            pass
+        except Exception as e:
+            print(f"[DEBUG] Google Vision indisponível: {e}")
         
         raise RuntimeError(
-            "Nenhum provedor de OCR disponível. "
-            "Instale EasyOCR (recomendado): pip install easyocr "
-            "ou configure um serviço em nuvem (Google Vision/AWS Textract)"
+            "Nenhum provedor de OCR local ou em nuvem disponível ou funcionando. "
+            "Por favor, verifique as dependências (easyocr/torch ou tesseract) "
+            "ou configure credenciais para Google Vision/AWS Textract."
         )
+
     
     elif provider == "tesseract":
         return TesseractOCRProvider()

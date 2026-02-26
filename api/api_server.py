@@ -57,9 +57,10 @@ async def startup_event():
     """Inicializa o banco de dados na inicialização da API."""
     try:
         init_db()
-        print("✅ Banco de dados inicializado com sucesso")
+        print("[OK] Banco de dados inicializado com sucesso")
     except Exception as e:
-        print(f"⚠️  Erro ao inicializar banco de dados: {e}")
+        print(f"[WARN] Erro ao inicializar banco de dados: {e}")
+
 
 # Configura CORS para permitir requisições do Next.js
 app.add_middleware(
@@ -89,8 +90,10 @@ def get_doc_processor():
     """Lazy loading do processador de documentos."""
     global _doc_processor
     if _doc_processor is None:
-        _doc_processor = DocumentProcessor(ocr_provider="auto")
+        ocr_p = os.getenv("OCR_PROVIDER", "auto")
+        _doc_processor = DocumentProcessor(ocr_provider=ocr_p)
     return _doc_processor
+
 
 @app.get("/", response_model=RootResponse, tags=["Geral"], summary="Endpoint raiz")
 async def root():
@@ -292,10 +295,11 @@ async def extract_contract(file: UploadFile = File(...)):
             if existing:
                 analise_salva = existing
                 ja_existia = True
-                print(f"ℹ️  Contrato já existe no banco (ID: {analise_salva.id}). Não salvando duplicado.")
+                print(f"[INFO] Contrato já existe no banco (ID: {analise_salva.id}). Não salvando duplicado.")
             else:
                 # Debug: mostra o que está sendo salvo
-                print(f"📝 Salvando análise no banco:")
+                print(f"[DATA] Salvando análise no banco:")
+
                 print(f"   - Veículo: {resultado.veiculo_marca} {resultado.veiculo_modelo} {resultado.veiculo_ano}")
                 print(f"   - Placa: {resultado.veiculo_placa}, RENAVAM: {resultado.veiculo_renavam}")
                 print(f"   - Observações: {len(resultado.observacoes or '')} caracteres")
@@ -306,13 +310,14 @@ async def extract_contract(file: UploadFile = File(...)):
                 )
                 if analise_salva:
                     db.commit()
-                    print(f"✅ Análise salva no banco de dados: ID {analise_salva.id}")
+                    print(f"[OK] Análise salva no banco de dados: ID {analise_salva.id}")
                     print(f"   - Veículo salvo: {analise_salva.veiculo_marca} {analise_salva.veiculo_modelo}")
                     print(f"   - Observações salvas: {len(analise_salva.observacoes or '')} caracteres")
             db.close()
         except Exception as db_error:
             # Loga erro mas não falha a requisição
-            print(f"⚠️  Erro ao salvar análise no banco: {db_error}")
+            print(f"[WARN] Erro ao salvar análise no banco: {db_error}")
+
             import traceback
             traceback.print_exc()
             if 'db' in locals():
