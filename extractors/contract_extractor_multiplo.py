@@ -326,13 +326,15 @@ Contrato a analisar:
             if not api_key:
                 raise ValueError("GROQ_API_KEY não encontrada no .env")
             # Modelos disponíveis no Groq:
-            # - Llama: llama-3.1-8b-instant (rápido), llama-3.3-70b-versatile (preciso)
+            # - Llama: llama-3.1-8b-instant (rápido - padrão econômico), llama-3.3-70b-versatile (preciso)
             # - Mixtral: mixtral-8x7b-32768 (balanceado)
             # NOTA: gemma2-9b-it e gemma-7b-it foram descontinuados
-            # Prioriza Llama 3.3 para precisão, depois Llama 3.1 para velocidade
-            modelos_disponiveis = model_name or [
-                "llama-3.3-70b-versatile",  # Llama - mais preciso (recomendado)
-                "llama-3.1-8b-instant",     # Llama - mais rápido
+            
+            # Prioriza modelo do .env, senão segue a ordem de eficiência/custo
+            env_model = os.getenv("GROQ_MODEL")
+            modelos_disponiveis = model_name or ([env_model] if env_model else []) + [
+                "llama-3.1-8b-instant",     # Llama - mais rápido e econômico ($0.05/M)
+                "llama-3.3-70b-versatile",  # Llama - mais preciso ($0.59/M)
                 "mixtral-8x7b-32768"       # Mixtral - balanceado
             ]
             if isinstance(modelos_disponiveis, str):
